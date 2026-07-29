@@ -34,3 +34,14 @@ __pycache__/
 !.gitignore
 # Track no-mistakes repo config
 !.no-mistakes.yaml
+
+# Lock files from alternate package managers
+pnpm-lock.yaml
+yarn.lock
+
+# Generated TypeScript configs
+tsconfig.check.json
+tsconfig.tsbuildinfo
+
+# Generated skill card artifacts
+SkillOpt/skillopt/envs/skill_card/
