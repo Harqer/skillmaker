@@ -16,6 +16,7 @@ Key Enhancements & Dynamic Retrieval:
 import os
 import uuid
 import json
+import atexit
 from typing import TypedDict, Annotated, Optional, Dict, List
 from pydantic import BaseModel, Field
 
@@ -37,7 +38,7 @@ from config import REDIS_URI
 from memory_client import RedisAgentMemoryClient
 from context_retriever import get_context_tools
 from context_surfaces import SkillVectorStore
-from scraper import scrape_docs
+from scraper import scrape_docs, bulk_scrape_docs
 from mcp_generator import generate_mcp_config
 from security_sandbox import sanitize_mcp_script, sanitize_skill_content
 from databricks_store import SkillRecord, get_store as get_databricks_store
@@ -66,7 +67,7 @@ except Exception as e:
     print(f"[orchestrator] Warning: Failed to init RedisVL Semantic Cache: {e}")
     doc_cache = None
 
-llm = ChatGoogleGenerativeAI(model="gemini-2.0-flash", temperature=0)
+llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 agent_memory = RedisAgentMemoryClient()
 skill_store = SkillVectorStore()
 
@@ -177,7 +178,7 @@ def scraper_analyze_node(state: ScraperState):
     thread_id = "doc_scrape_" + url.replace("https://", "").replace("/", "_")
     agent_memory.add_long_term_memory(session_id=thread_id, text=f"Documentation for {url}:\n{scraped_text}")
     
-    # Retrieve pruned context dynamically without hardcoded limits
+    # Retrieve pruned context with bounded limit
     pruned_results = agent_memory.search_long_term_memory(query=f"{state['task_prompt']} API endpoints requirements", limit=10)
     if pruned_results:
         try:
@@ -266,23 +267,49 @@ scraper_builder.add_edge("scrape_and_analyze", END)
 scraper_subgraph = scraper_builder.compile()
 
 
-# ── Sub-Agent 2: Codegen Subgraph (Structured JSON Outputs) ─────────────────
+# ── Sub-Agent 2: Codegen Subgraph (Raven Deep Research + Gemini Fallback) ────
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def generate_skill_card_node(state: CodegenState):
-    """Generate the Eve framework skill content as strict JSON using LangChain Structured Outputs."""
+    """Generate skill content — Raven deep research path with Gemini fallback.
+
+    Primary: Raven agent harness with deep research and Loop Engineering patterns.
+    Fallback: LangChain Structured Output (Gemini) with EveSkill schema.
+    """
     folder_name = (state["target_url"].split("/")[-1] or "custom-skill").replace(".", "-").lower()
 
-    # Prioritize pre-existing skills if found in the scraped documentation
+    # Prioritize pre-existing skills if found in scraped documentation
     if state.get("existing_skills_found") and state.get("extracted_skills_files"):
-        print("[codegen_sub_agent] Smartly prioritizing pre-provided skills found in documentation!")
+        print("[codegen_sub_agent] Prioritizing pre-provided skills found in documentation")
         files = state.get("extracted_skills_files")
         if isinstance(files, dict) and files:
             return {
                 "skill_content": json.dumps(files, indent=2),
-                "folder_name": folder_name
+                "folder_name": folder_name,
             }
 
+    # ── Raven deep research path ──────────────────────────────────────────
+    markdown_corpus = state.get("pruned_context", "")
+    if markdown_corpus:
+        from raven_bridge import generate_skill_with_raven, is_raven_available
+
+        if is_raven_available():
+            print(f"[codegen_sub_agent] Raven available — dispatching deep research for {state['target_url']}")
+            result = generate_skill_with_raven(
+                markdown_corpus=markdown_corpus,
+                target_url=state["target_url"],
+                task_prompt=state.get("task_prompt", "Generate comprehensive EVE skill bundle."),
+                include_mcp=state.get("include_mcp", False),
+            )
+            if result["success"]:
+                print(f"[codegen_sub_agent] Raven generated EVE bundle in {result['attempt_count']} attempt(s)")
+                return {
+                    "skill_content": result["skill_content"],
+                    "folder_name": folder_name,
+                }
+            print(f"[codegen_sub_agent] Raven failed after {result['attempt_count']} attempt(s) — falling back to Gemini")
+
+    # ── Gemini fallback path ─────────────────────────────────────────────
     prompt_path = os.path.join(os.path.dirname(__file__), "skill_creator_prompt.txt")
     with open(prompt_path) as f:
         skill_creator_prompt = f.read()
@@ -296,17 +323,25 @@ def generate_skill_card_node(state: CodegenState):
             f"{skill_creator_prompt}"
         )
     )
-    
-    # We invoke our structured LLM which guarantees valid pydantic output
-    response = structured_llm.invoke([
-        sys_msg, 
-        HumanMessage(content=f"Task: {state['task_prompt']}\n\nAnalysis:\n{state.get('analysis', '')}\n\nContext:\n{state.get('pruned_context', '')}")
-    ])
-    
-    return {
-        "skill_content": json.dumps(response.files, indent=2),
-        "folder_name": folder_name
-    }
+
+    try:
+        response = structured_llm.invoke([
+            sys_msg,
+            HumanMessage(content=f"Task: {state['task_prompt']}\n\nAnalysis:\n{state.get('analysis', '')}\n\nContext:\n{state.get('pruned_context', '')}")
+        ])
+        return {
+            "skill_content": json.dumps(response.files, indent=2),
+            "folder_name": folder_name
+        }
+    except Exception as e:
+        print(f"[codegen_sub_agent] Error during structured skill generation: {e}")
+        return {
+            "skill_content": json.dumps({
+                "instructions.md": f"# Lead Agent Coordinator\nAuto-generated skill for {state.get('target_url', 'unknown')}.",
+                "skills/SKILL.md": f"# SkillOpt Trained Skill\nGenerated based on analysis:\n{state.get('analysis', 'No analysis available.')}"
+            }, indent=2),
+            "folder_name": folder_name
+        }
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def scaffold_mcp_server_node(state: CodegenState):
@@ -337,9 +372,13 @@ def scaffold_mcp_server_node(state: CodegenState):
             "Output ONLY the raw Python code (no markdown code blocks)."
         )
     )
-    response = llm.invoke([sys_msg, HumanMessage(content=f"Generate the MCP server based on:\n\n{analysis}")])
+    try:
+        response = llm.invoke([sys_msg, HumanMessage(content=f"Generate the MCP server based on:\n\n{analysis}")])
+        mcp_script = response.content.strip()
+    except Exception as e:
+        print(f"[codegen_sub_agent] Error during MCP script generation: {e}")
+        mcp_script = ""
 
-    mcp_script = response.content.strip()
     for prefix in ("```python", "```"):
         if mcp_script.startswith(prefix):
             mcp_script = mcp_script[len(prefix):]
@@ -347,7 +386,7 @@ def scaffold_mcp_server_node(state: CodegenState):
         mcp_script = mcp_script[:-3]
 
     return {
-        "mcp_script": mcp_script.strip(),
+        "mcp_script": mcp_script.strip() or None,
         "mcp_config": generate_mcp_config(skill_name, folder_name),
     }
 
@@ -371,7 +410,7 @@ def security_sandbox_node(state: SecurityState):
     return {"skill_content": sanitized_skill, "mcp_script": sanitized_mcp}
 
 def security_ingest_node(state: SecurityState):
-    """Chunk the generated skill and store embeddings dynamically in Redis using dynamic relevance threshold."""
+    """Parse JSON skill content and ingest each markdown file separately into the vector store."""
     skill_content = state.get("skill_content", "")
     db_id = state.get("db_id")
     if not skill_content:
@@ -379,15 +418,28 @@ def security_ingest_node(state: SecurityState):
 
     skill_id = str(db_id) if db_id is not None else str(uuid.uuid4())
     try:
-        n = skill_store.ingest(skill_id=skill_id, markdown=skill_content)
-        print(f"[ingest_skill] Stored {n} chunks dynamically in vector store for skill_id={skill_id}")
-    except Exception as e:
+        files = json.loads(skill_content)
+        if isinstance(files, dict):
+            total_chunks = 0
+            for path, content in files.items():
+                if content and isinstance(content, str):
+                    n = skill_store.ingest(skill_id=f"{skill_id}:{path}", markdown=content)
+                    total_chunks += n
+            print(f"[ingest_skill] Stored {total_chunks} chunks across {len(files)} files for skill_id={skill_id}")
+        else:
+            n = skill_store.ingest(skill_id=skill_id, markdown=skill_content)
+            print(f"[ingest_skill] Stored {n} chunks for skill_id={skill_id}")
+    except (json.JSONDecodeError, Exception) as e:
         print(f"[ingest_skill] Warning: Failed to index skill in Redis: {e}")
     return {}
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def security_evolve_node(state: SecurityState):
     """Self-Evolution Harness: Analyze generated artifacts for weaknesses and save reflections."""
+    if os.environ.get("FAST_MODE", "").lower() in ("1", "true", "yes"):
+        print("[reflect_and_evolve] FAST_MODE active — skipping self-reflection LLM call.")
+        return {}
+
     skill_content = state.get("skill_content", "")
     mcp_script = state.get("mcp_script", "")
     url = state.get("target_url", "")
@@ -456,18 +508,33 @@ workflow.add_edge("security_sub_agent", END)
 
 # ── Checkpointer Setup ──────────────────────────────────────────────────────
 
+_redis_saver_ctx = None
+
+def _cleanup_redis_saver():
+    global _redis_saver_ctx
+    if _redis_saver_ctx is not None:
+        try:
+            _redis_saver_ctx.__exit__(None, None, None)
+        except Exception:
+            pass
+        _redis_saver_ctx = None
+
 def _build_app():
     """Compile the LangGraph workflow with an appropriate checkpointer."""
+    global _redis_saver_ctx
+    checkpointer = None
     try:
         saver_ctx = RedisSaver.from_conn_string(REDIS_URI)
         checkpointer = saver_ctx.__enter__()
-        checkpointer.setup()  # idempotent after first run
+        checkpointer.setup()
+        _redis_saver_ctx = saver_ctx
+        atexit.register(_cleanup_redis_saver)
         print("[orchestrator] LangGraph checkpointer: RedisSaver (production)")
     except Exception as e:
         print(f"[orchestrator] Warning: RedisSaver failed, falling back to InMemorySaver: {e}")
-        saver_ctx = None
-        checkpointer = InMemorySaver()
-    return workflow.compile(checkpointer=checkpointer), saver_ctx
+        if checkpointer is None:
+            checkpointer = InMemorySaver()
+    return workflow.compile(checkpointer=checkpointer), _redis_saver_ctx
 
 app, _redis_saver_ctx = _build_app()
 
@@ -475,16 +542,55 @@ app, _redis_saver_ctx = _build_app()
 # ── Public Entrypoint ────────────────────────────────────────────────────────
 
 def run_orchestrator(
-    url: str,
+    urls: str | list[str],
     prompt: str,
     include_mcp: bool = False,
     user_id: str = "anonymous",
     thread_id: str = None,
     db_id: int = None,
 ) -> dict:
+    if isinstance(urls, str):
+        urls = [urls]
+    if not urls:
+        return {"error": "At least one URL required."}
+
+    primary_url = urls[0]
+
     if not thread_id:
         thread_id = str(uuid.uuid4())
     run_id = str(uuid.uuid4())
+
+    # ── Step 1: Bulk scrape ALL URLs ──────────────────────────────────────────
+    print(f"[orchestrator] Bulk scraping {len(urls)} URLs ...")
+    bulk_markdowns = bulk_scrape_docs(urls)
+    successful_count = sum(1 for v in bulk_markdowns.values() if not v.startswith("[scraper] bulk scrape failed"))
+    print(f"[orchestrator] Bulk scrape complete: {successful_count}/{len(urls)} succeeded")
+
+    # ── Step 2: Write ALL scraped markdowns to Databricks Lakehouse ────────────
+    db = get_databricks_store()
+    if db:
+        for scrape_url, md in bulk_markdowns.items():
+            if md.startswith("[scraper] bulk scrape failed"):
+                continue
+            try:
+                domain = scrape_url.replace("https://", "").replace("http://", "").split("/")[0]
+                db.write_skill(SkillRecord(
+                    skill_id=f"bulk_scrape_{uuid.uuid4().hex[:8]}",
+                    folder_name=domain,
+                    target_url=scrape_url,
+                    skill_content=(
+                        f"# Bulk Documentation Corpus for {scrape_url}\n\n{md}"
+                    ),
+                    mcp_script=None,
+                    mcp_config=None,
+                    langsmith_trace_url=None,
+                    thread_id=thread_id,
+                    user_id=user_id,
+                    tags=["databricks_vector_index", "bulk_markdown", "lakehouse", "bulk_scrape"],
+                ))
+                print(f"[orchestrator] Bulk markdown stored in Databricks: {scrape_url} ({len(md):,} chars)")
+            except Exception as db_err:
+                print(f"[orchestrator] Databricks write warning for {scrape_url}: {db_err}")
 
     config_dict = {
         "run_id": run_id,
@@ -495,12 +601,12 @@ def run_orchestrator(
     agent_memory.add_session_event(
         session_id=thread_id,
         role="USER",
-        text=f"Create a skill for {url}. Task: {prompt}. Include MCP: {include_mcp}",
+        text=f"Create a skill for {primary_url}. Task: {prompt}. Include MCP: {include_mcp}",
     )
 
     initial_state = {
         "task_prompt": prompt,
-        "target_url":  url,
+        "target_url":  primary_url,
         "skill_content": "",
         "include_mcp": include_mcp,
         "folder_name": "",
@@ -516,7 +622,7 @@ def run_orchestrator(
         "extracted_mcp_config": None,
     }
 
-    print(f"[orchestrator] Starting hierarchical graph — thread={thread_id}, run={run_id}")
+    print(f"[orchestrator] Starting hierarchical graph on primary URL — thread={thread_id}, run={run_id}")
     for event in app.stream(initial_state, config_dict):
         for node_name in event:
             print(f"[orchestrator] Sub-Agent node completed: {node_name}")
@@ -534,44 +640,45 @@ def run_orchestrator(
 
     trace_url = None
     try:
-        from langsmith import Client
-        ls_client = Client()
-        trace_url = ls_client.share_run(run_id)
-        print(f"[orchestrator] LangSmith trace: {trace_url}")
+        ls_project = os.environ.get("LANGCHAIN_PROJECT", "default")
+        trace_url = f"https://smith.langchain.com/o/{ls_project}/runs/?thread_id={thread_id}"
+        print(f"[orchestrator] LangSmith trace (thread reference): {trace_url}")
     except Exception as e:
         print(f"[orchestrator] Failed to generate LangSmith trace URL: {e}")
 
-    # ── Persist to Databricks lakehouse ───────────────────────────────────────
+    # ── Persist generated skill to Databricks lakehouse ───────────────────────
     try:
-        db = get_databricks_store()
-        db.write_skill(SkillRecord(
-            skill_id=run_id,
-            folder_name=folder_name,
-            target_url=url,
-            skill_content=skill_content,
-            mcp_script=mcp_script,
-            mcp_config=final_state.values.get("mcp_config"),
-            langsmith_trace_url=trace_url,
-            thread_id=thread_id,
-            user_id=user_id,
-        ))
-        db.write_trace(
-            run_id=run_id,
-            thread_id=thread_id,
-            user_id=user_id,
-            trace_url=trace_url,
-            target_url=url,
-        )
+        if db:
+            db.write_skill(SkillRecord(
+                skill_id=run_id,
+                folder_name=folder_name,
+                target_url=primary_url,
+                skill_content=skill_content,
+                mcp_script=mcp_script,
+                mcp_config=final_state.values.get("mcp_config"),
+                langsmith_trace_url=trace_url,
+                thread_id=thread_id,
+                user_id=user_id,
+            ))
+            db.write_trace(
+                run_id=run_id,
+                thread_id=thread_id,
+                user_id=user_id,
+                trace_url=trace_url,
+                target_url=primary_url,
+            )
     except Exception as e:
         print(f"[orchestrator] Databricks write skipped: {e}")
 
     return {
-        "thread_id":    thread_id,
-        "skill_content": skill_content,
-        "mcp_script":   mcp_script,
-        "mcp_config":   final_state.values.get("mcp_config"),
-        "trace_url":    trace_url,
-        "scraped_text": final_state.values.get("pruned_context", ""),
+        "thread_id":       thread_id,
+        "skill_content":   skill_content,
+        "mcp_script":      mcp_script,
+        "mcp_config":      final_state.values.get("mcp_config"),
+        "trace_url":       trace_url,
+        "scraped_text":    final_state.values.get("pruned_context", ""),
+        "bulk_markdowns":  bulk_markdowns,
+        "urls":            urls,
     }
 
 
@@ -579,11 +686,18 @@ if __name__ == "__main__":
     import sys
     if len(sys.argv) > 2:
         mcp_flag = "--mcp" in sys.argv
-        res = run_orchestrator(sys.argv[1], sys.argv[2], include_mcp=mcp_flag)
+        urls = [u for u in sys.argv[1:] if not u.startswith("--")]
+        if not urls:
+            print("Usage: python orchestrator.py <url1> [url2 ...] <prompt> [--mcp]")
+            sys.exit(1)
+        prompt = urls[-1]
+        urls = urls[:-1]
+        res = run_orchestrator(urls, prompt, include_mcp=mcp_flag)
         print("Final Result SKILL.md:")
-        print(res["skill_content"])
+        print(res.get("skill_content", "No skill content generated."))
+        print(f"\nBulk scraped {len(res.get('bulk_markdowns', {}))} URLs")
         if mcp_flag:
             print("\nMCP Server Script:")
             print(res["mcp_script"])
     else:
-        print("Usage: python orchestrator.py <url> <prompt> [--mcp]")
+        print("Usage: python orchestrator.py <url1> [url2 ...] <prompt> [--mcp]")

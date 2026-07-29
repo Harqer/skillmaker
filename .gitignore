@@ -32,3 +32,5 @@ __pycache__/
 .*
 # Keep .gitignore
 !.gitignore
+# Track no-mistakes repo config
+!.no-mistakes.yaml

@@ -4,6 +4,10 @@ import { z } from "zod";
 import { eq } from "drizzle-orm";
 import { db, inMemorySkills } from "../lib/db";
 import { skills, users } from "../lib/db/schema";
+import {
+	generateSkill as apiGenerateSkill,
+	getSkillRequest as apiGetSkillRequest,
+} from "../lib/api-client";
 
 // ── Canonical Pre-computed Skill Suite (0-Token Interception Store) ────────────
 export const CANONICAL_PRECOMPUTED_SKILLS: Record<
@@ -21,7 +25,8 @@ export const CANONICAL_PRECOMPUTED_SKILLS: Record<
 > = {
 	"meta.com": {
 		title: "Meta Wearables & Smart Glasses SDK",
-		description: "Build multimodal voice-first agent apps for Meta Ray-Ban and wearable sensors.",
+		description:
+			"Build multimodal voice-first agent apps for Meta Ray-Ban and wearable sensors.",
 		content: JSON.stringify({
 			"instructions.md": `# Lead Agent Coordinator - Meta Wearables
 You are the primary Lead Coordinator agent specializing in Meta Smart Glasses (Ray-Ban Meta) and wearable sensor streams under the EVE agent specification.
@@ -85,7 +90,8 @@ async def send_haptic_feedback(intensity: str = "medium") -> str:
 	},
 	"stripe.com": {
 		title: "Stripe Payments & Subscriptions Expert",
-		description: "Production-ready agentic checkout flows, Webhooks, and Billing engine integrations.",
+		description:
+			"Production-ready agentic checkout flows, Webhooks, and Billing engine integrations.",
 		content: JSON.stringify({
 			"instructions.md": `# Lead Agent Coordinator - Stripe Payments
 You are the primary Lead Coordinator agent specializing in Stripe API v2024-12-18 and Stripe Billing under the EVE agent specification.
@@ -141,7 +147,8 @@ async def create_payment_intent(amount: int, currency: str = "usd") -> str:
 	},
 	"neon.tech": {
 		title: "PostgreSQL Database Architect",
-		description: "Design production-ready database schemas, connection pooling, and drizzle-orm migrations.",
+		description:
+			"Design production-ready database schemas, connection pooling, and drizzle-orm migrations.",
 		content: JSON.stringify({
 			"instructions.md": `# Lead Agent Coordinator - PostgreSQL Architect
 You are the primary Lead Coordinator agent specializing in PostgreSQL database schemas and drizzle-orm.
@@ -168,7 +175,8 @@ You are the primary Lead Coordinator agent specializing in PostgreSQL database s
 	},
 	"nextjs.org": {
 		title: "Next.js 15 & React Server Components Expert",
-		description: "Production App Router patterns, Server Actions, Caching, and Streaming rendering.",
+		description:
+			"Production App Router patterns, Server Actions, Caching, and Streaming rendering.",
 		content: JSON.stringify({
 			"instructions.md": `# Lead Agent Coordinator - Next.js 15 & RSC
 Primary Lead agent coordinator for Next.js 15 App Router architecture.
@@ -197,7 +205,8 @@ Primary Lead agent coordinator for Next.js 15 App Router architecture.
 	},
 	"tailwindcss.com": {
 		title: "Tailwind CSS v4 Utility Specialist",
-		description: "High-performance CSS v4 styling, custom theme variables, and responsive layouts.",
+		description:
+			"High-performance CSS v4 styling, custom theme variables, and responsive layouts.",
 		content: JSON.stringify({
 			"instructions.md": `# Lead Agent Coordinator - Tailwind CSS v4
 Primary Coordinator for modern CSS utility engineering.`,
@@ -217,7 +226,8 @@ Primary Coordinator for modern CSS utility engineering.`,
 	},
 	"evermind-ai/raven": {
 		title: "Raven Autonomous Skill & SkillOpt Platform",
-		description: "Production EVE Skill Synthesis, Trajectory Mining, and SkillOpt Gated Optimization for AI Agents.",
+		description:
+			"Production EVE Skill Synthesis, Trajectory Mining, and SkillOpt Gated Optimization for AI Agents.",
 		content: JSON.stringify({
 			"instructions.md": `# Lead Agent Coordinator - Raven Platform
 You are the Lead Coordinator agent specializing in the Raven Skill Engine, Firecrawl ingestion, and SkillOpt optimization pipeline under the EVE specification.
@@ -274,7 +284,8 @@ async def synthesize_skill(source_url: str) -> str:
 	},
 	"cobusgreyling/loop-engineering": {
 		title: "Loop Engineering Agentic Workflow Architecture",
-		description: "Production EVE Skill Bundle for Loop Engineering (Cobus Greyling), implementing reflective agent loops, multi-turn reasoning cycles, and trajectory evaluation.",
+		description:
+			"Production EVE Skill Bundle for Loop Engineering (Cobus Greyling), implementing reflective agent loops, multi-turn reasoning cycles, and trajectory evaluation.",
 		content: JSON.stringify({
 			"instructions.md": `# Lead Agent Coordinator - Loop Engineering
 You are the Lead Coordinator agent specializing in Loop Engineering (Cobus Greyling) compound agentic systems and reflective loop design under the EVE specification.
@@ -307,7 +318,13 @@ You are a principal AI agent developer specializing in Loop Engineering, Compoun
 2. **State Machine Bounding**: Guard against infinite recursion by maintaining step counters and state diff checks.
 3. **EVE Spec Compliance**: Standardize loop structures across instructions.md, subagents/, and rules/.`,
 		}),
-		tags: ["Loop Engineering", "Agentic Loops", "EVE", "Agent Workflows", "Cobus Greyling"],
+		tags: [
+			"Loop Engineering",
+			"Agentic Loops",
+			"EVE",
+			"Agent Workflows",
+			"Cobus Greyling",
+		],
 		mcpScript: `# Loop Engineering MCP Tool
 from mcp.server.fastmcp import FastMCP
 mcp = FastMCP("loop-engineering-mcp")
@@ -347,330 +364,122 @@ function getWorkerPartitionNode(url: string): string {
 	return WORKER_NODES[index];
 }
 
-// ── In-Memory Job Queue & Telemetry Engine ─────────────────────────────────────
-export interface SystemJob {
+// ── Local Generation Status Store ─────────────────────────────────────────────
+// Stores results for canonical cache hits and Gemini fallback jobs.
+// FastAPI backend jobs are tracked by the backend and queried directly.
+
+interface GenerationResult {
 	id: number;
 	url: string;
-	status: "enqueued" | "scraping" | "vectorizing" | "synthesizing" | "eventual_sync" | "completed" | "failed";
+	status: string;
 	progressStep: string;
-	logs: string[];
-	chainOfThought: string[];
 	partitionNode: string;
 	cacheHit: boolean;
 	cacheType: string;
 	tokensSaved: number;
 	latencyMs: number;
-	createdAt: string;
 	eventualSyncStatus: {
 		dbReplicated: boolean;
 		vectorIndexed: boolean;
 		cdnPushed: boolean;
 	};
 	createdSkill?: {
+		id: string;
 		title: string;
 		description: string;
 		content: string;
 		tags: string[];
+		authorId: string;
+		upvotes: number;
 		mcpScript: string | null;
 		mcpConfig: string | null;
 		traceUrl: string | null;
 		sourceUrl: string | null;
+		createdAt: string;
 	};
+	logs: string[];
+	chainOfThought: string[];
 	error?: string;
 }
 
-const mockDatabase = new Map<number, SystemJob>();
-let mockIdCounter = 8888000;
+const localGenerationStore = new Map<number, GenerationResult>();
+let localIdCounter = 8888000;
 
 // ── Helper to matching canonical cache ─────────────────────────────────────────
 function findCanonicalMatch(url: string) {
 	const lowercaseUrl = url.toLowerCase();
 	for (const [key, value] of Object.entries(CANONICAL_PRECOMPUTED_SKILLS)) {
-		if (lowercaseUrl.includes(key) || lowercaseUrl.includes(value.canonicalDomain)) {
+		if (
+			lowercaseUrl.includes(key) || lowercaseUrl.includes(value.canonicalDomain)
+		) {
 			return value;
 		}
 	}
 	// Also check keyword matches
-	if (lowercaseUrl.includes("loop") || lowercaseUrl.includes("cobus") || lowercaseUrl.includes("loop-engineering")) return CANONICAL_PRECOMPUTED_SKILLS["cobusgreyling/loop-engineering"];
-	if (lowercaseUrl.includes("raven") || lowercaseUrl.includes("evermind")) return CANONICAL_PRECOMPUTED_SKILLS["evermind-ai/raven"];
+	if (
+		lowercaseUrl.includes("loop") ||
+		lowercaseUrl.includes("cobus") ||
+		lowercaseUrl.includes("loop-engineering")
+	) return CANONICAL_PRECOMPUTED_SKILLS["cobusgreyling/loop-engineering"];
+	if (lowercaseUrl.includes("raven") || lowercaseUrl.includes("evermind")) {
+		return CANONICAL_PRECOMPUTED_SKILLS["evermind-ai/raven"];
+	}
 	if (lowercaseUrl.includes("stripe")) return CANONICAL_PRECOMPUTED_SKILLS["stripe.com"];
-	if (lowercaseUrl.includes("meta") || lowercaseUrl.includes("wearable")) return CANONICAL_PRECOMPUTED_SKILLS["meta.com"];
-	if (lowercaseUrl.includes("neon") || lowercaseUrl.includes("postgres")) return CANONICAL_PRECOMPUTED_SKILLS["neon.tech"];
-	if (lowercaseUrl.includes("next") || lowercaseUrl.includes("react")) return CANONICAL_PRECOMPUTED_SKILLS["nextjs.org"];
+	if (lowercaseUrl.includes("meta") || lowercaseUrl.includes("wearable")) {
+		return CANONICAL_PRECOMPUTED_SKILLS["meta.com"];
+	}
+	if (lowercaseUrl.includes("neon") || lowercaseUrl.includes("postgres")) {
+		return CANONICAL_PRECOMPUTED_SKILLS["neon.tech"];
+	}
+	if (lowercaseUrl.includes("next") || lowercaseUrl.includes("react")) {
+		return CANONICAL_PRECOMPUTED_SKILLS["nextjs.org"];
+	}
 	if (lowercaseUrl.includes("tailwind")) return CANONICAL_PRECOMPUTED_SKILLS["tailwindcss.com"];
 	return null;
 }
 
-// ── generateSkillFromUrl ──────────────────────────────────────────────────────
-export const generateSkillFromUrl = createServerFn({ method: "POST" })
-	.validator(
-		z.object({
-			url: z.string().url("Must be a valid URL"),
-			prompt: z.string().optional().or(z.literal("")),
-			include_mcp: z.boolean().default(false),
-		}),
-	)
-	.handler(async ({ data }) => {
-		let currentUserId = "user_mock";
-		try {
-			const { userId } = await auth();
-			if (userId) currentUserId = userId;
-		} catch (_err) {
-			// Fallback to user_mock if Clerk is uninitialized
-		}
+// ── Gemini Fallback Pipeline ───────────────────────────────────────────────────
+// Kept as a fallback when the FastAPI backend is unreachable.
 
-		// 1. Check Edge API Gateway - 0-Token Interception / Canonical Cache
-		const canonicalMatch = findCanonicalMatch(data.url);
-		const partitionNode = getWorkerPartitionNode(data.url);
-		const mockId = ++mockIdCounter;
-
-		if (canonicalMatch) {
-			// Instant 0-token hit!
-			const skillId = `skill_preset_${mockId}_${Date.now()}`;
-			const canonicalSkill = {
-				id: skillId,
-				title: canonicalMatch.title,
-				description: canonicalMatch.description,
-				content: canonicalMatch.content,
-				tags: canonicalMatch.tags,
-				authorId: currentUserId,
-				upvotes: 12,
-				mcpScript: canonicalMatch.mcpScript,
-				mcpConfig: canonicalMatch.mcpConfig,
-				traceUrl: "https://smith.langchain.com/o/zap-compiler/projects/p/canonical-cache-hit",
-				sourceUrl: data.url,
-				createdAt: new Date().toISOString(),
-			};
-			inMemorySkills.unshift(canonicalSkill);
-
-			const completedJob: SystemJob = {
-				id: mockId,
-				url: data.url,
-				status: "completed",
-				progressStep: "Stage 0 LangCache Hit: Served directly from Canonical Skill Cache.",
-				logs: [
-					`[${new Date().toLocaleTimeString()}] [LangCache] Instant 0-token match detected for ${data.url}`,
-					`[${new Date().toLocaleTimeString()}] [Databricks Store] Retrieved pre-indexed EVE bundle from Delta Lake`,
-					`[${new Date().toLocaleTimeString()}] [Redis Iris] Served zero-token cached response in 14ms`
-				],
-				chainOfThought: [
-					`Matched canonical rule signature for ${canonicalMatch.title}`,
-					`0-Token Interception avoided ${canonicalMatch.tokensSaved} tokens of LLM generation`
-				],
-				partitionNode,
-				cacheHit: true,
-				cacheType: "0-Token Canonical Interception",
-				tokensSaved: canonicalMatch.tokensSaved,
-				latencyMs: 14,
-				createdAt: new Date().toISOString(),
-				eventualSyncStatus: {
-					dbReplicated: true,
-					vectorIndexed: true,
-					cdnPushed: true,
-				},
-				createdSkill: canonicalSkill,
-			};
-			mockDatabase.set(mockId, completedJob);
-			return {
-				status: "enqueued",
-				db_id: mockId,
-				cacheHit: true,
-				partitionNode,
-			};
-		}
-
-		// 1b. Check Persistent DB Cache (PostgreSQL / Neon)
-		try {
-			const existingSkills = await db.select().from(skills).where(eq(skills.sourceUrl, data.url)).limit(1);
-			if (existingSkills.length > 0) {
-				const existing = existingSkills[0];
-				const dbSkill = {
-					id: existing.id,
-					title: existing.title,
-					description: existing.description,
-					content: existing.content,
-					tags: existing.tags,
-					authorId: existing.authorId,
-					upvotes: existing.upvotes,
-					mcpScript: existing.mcpScript,
-					mcpConfig: existing.mcpConfig,
-					traceUrl: existing.traceUrl,
-					sourceUrl: existing.sourceUrl,
-					createdAt: existing.createdAt.toISOString(),
-				};
-				inMemorySkills.unshift(dbSkill);
-
-				const completedJob: SystemJob = {
-					id: mockId,
-					url: data.url,
-					status: "completed",
-					progressStep: "Stage 0 LangCache Hit: Served directly from Neon Database Cache.",
-					partitionNode,
-					cacheHit: true,
-					cacheType: "PostgreSQL Skill Cache",
-					tokensSaved: 14500,
-					latencyMs: 18,
-					createdAt: new Date().toISOString(),
-					eventualSyncStatus: {
-						dbReplicated: true,
-						vectorIndexed: true,
-						cdnPushed: true,
-					},
-					createdSkill: dbSkill,
-				};
-				mockDatabase.set(mockId, completedJob);
-				return {
-					status: "enqueued",
-					db_id: mockId,
-					cacheHit: true,
-					partitionNode,
-				};
-			}
-		} catch (_dbCacheErr) {
-			// Fallthrough to generation pipeline if DB query fails or empty
-		}
-
-		// 2. Uncached / Custom URL: Enqueue job onto Async Queue Worker Pipeline
-		const initialJob: SystemJob = {
-			id: mockId,
-			url: data.url,
-			status: "enqueued",
-			progressStep: "Analyzing URL and queueing skill compiler...",
-			logs: [`[${new Date().toLocaleTimeString()}] [Job Enqueued] Task #${mockId} assigned to partition ${partitionNode}`],
-			chainOfThought: [`Initialized compiler task for target documentation URL: ${data.url}`],
-			partitionNode,
-			cacheHit: false,
-			cacheType: "Standard Generation",
-			tokensSaved: 0,
-			latencyMs: 0,
-			createdAt: new Date().toISOString(),
-			eventualSyncStatus: {
-				dbReplicated: false,
-				vectorIndexed: false,
-				cdnPushed: false,
-			},
-		};
-		mockDatabase.set(mockId, initialJob);
-
-		const updateJobState = (patch: Partial<SystemJob>) => {
-			const existing = mockDatabase.get(mockId);
-			if (existing) {
-				mockDatabase.set(mockId, { ...existing, ...patch });
-			}
-		};
-
-		// Execute asynchronous progressive SkillOpt optimization & EVE pipeline
-		(async () => {
-			await runSkillOptAndEvePipeline(
-				data.url,
-				data.prompt,
-				data.include_mcp,
-				currentUserId,
-				updateJobState,
-			);
-		})();
-
-		return {
-			status: "enqueued",
-			db_id: mockId,
-			cacheHit: false,
-			partitionNode,
-		};
-	});
-
-// ── runSkillOptAndEvePipeline ──────────────────────────────────────────────────
-async function runSkillOptAndEvePipeline(
+async function runGeminiFallback(
 	url: string,
 	prompt: string | undefined,
 	includeMcp: boolean,
 	authorId: string,
-	updateJobState: (patch: Partial<SystemJob>) => void,
+	localId: number,
 ) {
 	const startMs = Date.now();
 	const logsList: string[] = [
-		`[${new Date().toLocaleTimeString()}] [Stage 1] Initializing Firecrawl crawler for ${url}`
+		`[${new Date().toLocaleTimeString()}] [Stage 1] Initializing Gemini pipeline for ${url}`,
 	];
 	const cotList: string[] = [
-		`Step 1: Target URL identified: ${url}. Initializing multi-stage Raven Deep Research & SkillOpt pipeline.`
+		`Step 1: Target URL identified: ${url}. FastAPI backend unavailable, using Gemini fallback.`,
 	];
 
+	const updateState = (patch: Partial<GenerationResult>) => {
+		const existing = localGenerationStore.get(localId);
+		if (existing) {
+			localGenerationStore.set(localId, { ...existing, ...patch });
+		}
+	};
+
 	try {
-		// Phase 1: Firecrawl Document Ingestion
-		logsList.push(`[${new Date().toLocaleTimeString()}] [Firecrawl] Streaming raw Markdown documentation & code snippets...`);
-		cotList.push(`Analyzed site structure and extracted Markdown content streams.`);
-		updateJobState({
-			status: "scraping",
-			progressStep: "Stage 1: Firecrawl crawling documentation site & extracting Markdown streams...",
-			logs: [...logsList],
-			chainOfThought: [...cotList],
-		});
-		await new Promise((r) => setTimeout(r, 600));
-
-		// Phase 2: Raven Deep Research & Databricks Lakehouse Vector Indexing
-		logsList.push(`[${new Date().toLocaleTimeString()}] [Databricks Lakehouse] Syncing bulk Markdowns into Delta Lake table (\`skill_maker.skills\`) via Auto Loader...`);
-		logsList.push(`[${new Date().toLocaleTimeString()}] [Databricks Vector Search] Generated structured vector embeddings (\`skill_maker.skills.skills_vs_index\`).`);
-		logsList.push(`[${new Date().toLocaleTimeString()}] [Raven Deep Research] Scanning documentation for official CLI skills, MCP tool packages, and SDK rules...`);
-		cotList.push(`Databricks Lakehouse indexed bulk Markdowns. Raven identified domain structures and official skill signatures.`);
-		updateJobState({
-			status: "vectorizing",
-			progressStep: "Stage 2: Raven Deep Research streaming bulk Markdowns to Databricks Lakehouse, generating Vector Embeddings & scanning official skills...",
-			logs: [...logsList],
-			chainOfThought: [...cotList],
-		});
-		await new Promise((r) => setTimeout(r, 600));
-
-		// Phase 3: EVE Formatting & SkillOpt Optimization Loop
-		logsList.push(`[${new Date().toLocaleTimeString()}] [SkillOpt Engine] Mining execution trajectory logs (Epoch 1) against evaluation benchmarks...`);
-		logsList.push(`[${new Date().toLocaleTimeString()}] [Gemini Synthesis] Formatting EVE bundle with Gemini 2.5 Flash...`);
-		cotList.push(`Executing SkillOpt trajectory optimization. Formatting instructions.md, subagents/, skills/SKILL.md, and rules/.`);
-		updateJobState({
-			status: "synthesizing",
-			progressStep: "Stage 3 & 4: SkillOpt trajectory mining & EVE bundle formatting with official skill adoption (Gemini 2.5 Flash)...",
-			logs: [...logsList],
-			chainOfThought: [...cotList],
-		});
-
 		let parsed: Record<string, unknown> | null = null;
 
-		// Execute Raven Core Python Subprocess as the primary reasoning & synthesis engine
-		try {
-			logsList.push(`[${new Date().toLocaleTimeString()}] [Raven Engine] Spawning active Raven Python process (agent/bridge.py)...`);
-			const { execFile } = await import("node:child_process");
-			const { promisify } = await import("node:util");
-			const execFileAsync = promisify(execFile);
-
-			const pythonPath = process.env.PYTHON_PATH || "python3";
-			const scriptPath = "agent/bridge.py";
-			const args = ["--url", url, "--prompt", prompt || "", ...(includeMcp ? ["--include-mcp"] : [])];
-
-			const { stdout, stderr } = await execFileAsync(pythonPath, [scriptPath, ...args], {
-				env: { ...process.env },
-				timeout: 120000,
-			});
-
-			if (stderr) {
-				logsList.push(`[${new Date().toLocaleTimeString()}] [Raven Subprocess Log] ${stderr.trim().slice(0, 300)}`);
-			}
-
-			if (stdout) {
-				parsed = JSON.parse(stdout.trim());
-			}
-		} catch (subErr) {
-			logsList.push(`[${new Date().toLocaleTimeString()}] [Raven Subprocess Error] ${subErr instanceof Error ? subErr.message : String(subErr)}`);
-			// Fallback to direct Gemini SDK call if subprocess fails
-			if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
-				try {
-					const { GoogleGenAI } = await import("@google/genai");
-					const ai = new GoogleGenAI({
-						apiKey: (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!,
-						httpOptions: {
-							headers: {
-								"User-Agent": "aistudio-build",
-							},
+		// Try Gemini direct SDK call
+		if (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY) {
+			try {
+				const { GoogleGenAI } = await import("@google/genai");
+				const ai = new GoogleGenAI({
+					apiKey: (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!,
+					httpOptions: {
+						headers: {
+							"User-Agent": "aistudio-build",
 						},
-					});
+					},
+				});
 
-					const systemInstruction = `You are the Raven Deep Research Compiler, SkillOpt Prompt Optimizer, and EVE Skill Bundle Generator.
+				const systemInstruction = `You are the Raven Deep Research Compiler, SkillOpt Prompt Optimizer, and EVE Skill Bundle Generator.
 Your task is to run an end-to-end multi-stage pipeline (Raven Deep Research -> Databricks Lakehouse Vector Indexing -> EVE Formatting -> SkillOpt Optimization -> Redis Iris Indexing) to produce a production-grade EVE Agent Directory.
 
 Follow these strict architectural principles:
@@ -712,29 +521,40 @@ Return valid JSON with schema:
   "mcpConfig": "JSON string for MCP config if requested else null"
 }`;
 
-					const response = await ai.models.generateContent({
-						model: "gemini-2.5-flash",
-						contents: `Target URL: ${url}\nPrompt Directives: ${prompt || "Auto-optimize from documentation"}\nInclude MCP: ${includeMcp}`,
-						config: {
-							systemInstruction,
-							responseMimeType: "application/json",
-						},
-					});
+				const response = await ai.models.generateContent({
+					model: "gemini-2.5-flash",
+					contents: `Target URL: ${url}\nPrompt Directives: ${prompt || "Auto-optimize from documentation"}\nInclude MCP: ${includeMcp}`,
+					config: {
+						systemInstruction,
+						responseMimeType: "application/json",
+					},
+				});
 
-					const text = response.text;
-					if (text) {
-						parsed = JSON.parse(text);
-					}
-				} catch (apiErr) {
-					logsList.push(`[${new Date().toLocaleTimeString()}] [Gemini Direct Call Error] ${apiErr instanceof Error ? apiErr.message : String(apiErr)}`);
+				const text = response.text;
+				if (text) {
+					parsed = JSON.parse(text);
+					logsList.push(
+						`[${new Date().toLocaleTimeString()}] [Gemini] Successfully generated EVE bundle`,
+					);
 				}
+			} catch (apiErr) {
+				logsList.push(
+					`[${new Date().toLocaleTimeString()}] [Gemini Error] ${apiErr instanceof Error ? apiErr.message : String(apiErr)}`,
+				);
 			}
 		}
 
-		// Fallback generator if Gemini is unconfigured or returned empty
+		// Fallback template generator if Gemini is unconfigured or failed
 		if (!parsed) {
-			const domainClean = url.replace("https://", "").replace("http://", "").split("/")[0];
-			const isAdk = url.toLowerCase().includes("adk") || prompt?.toLowerCase().includes("adk") || domainClean.includes("google") || domainClean.includes("agent");
+			const domainClean = url
+				.replace("https://", "")
+				.replace("http://", "")
+				.split("/")[0];
+			const isAdk =
+				url.toLowerCase().includes("adk") ||
+				prompt?.toLowerCase().includes("adk") ||
+				domainClean.includes("google") ||
+				domainClean.includes("agent");
 
 			const titleClean = isAdk
 				? "Google Agent Development Kit (ADK) Multi-Agent Skill"
@@ -748,7 +568,14 @@ Return valid JSON with schema:
 				description: isAdk
 					? "Production-grade Google Agent Development Kit (ADK) EVE skill for multi-agent workflows, LlmAgent, tool orchestration, and Vertex AI / Gemini 2.0 / 2.5 models."
 					: `Production-grade EVE agent skill for ${domainClean} compiled via Raven Deep Research & Databricks Lakehouse Vector Search.`,
-				tags: isAdk ? ["Google ADK", "Multi-Agent", "Gemini", "LlmAgent"] : ["EVE", domainClean.split(".")[0], "Agent", "SkillOpt"],
+				tags: isAdk
+					? ["Google ADK", "Multi-Agent", "Gemini", "LlmAgent"]
+					: [
+							"EVE",
+							domainClean.split(".")[0],
+							"Agent",
+							"SkillOpt",
+						],
 				eveFiles: {
 					"instructions.md": isAdk
 						? `# Lead Agent Coordinator - Google ADK Multi-Agent System\nYou are the Lead Agent Coordinator for Google Agent Development Kit (ADK).\n\n## Core Principles & ADK Architecture\n1. **Multi-Agent by Design**: Compose specialized \`LlmAgent\` hierarchies for complex tasks.\n2. **Tool Ecosystem**: Equip agents with \`google_search\`, FastMCP servers, and custom tools.\n3. **Model Selection**: Standardize on \`gemini-2.5-flash\` or \`gemini-2.0-flash-exp\`.\n4. **Loop Safety**: Enforce \`max_iterations: 5\` across all agent loops.\n\n## Subagent Delegation\n- Route query parsing to \`/subagents/specialist.md\`.\n- Enforce skill boundaries in \`/skills/SKILL.md\`.`
@@ -759,156 +586,57 @@ Return valid JSON with schema:
 					"skills/SKILL.md": isAdk
 						? `# SkillOpt Trained Skill: Google Agent Development Kit (ADK)\nOfficial directives for Google ADK derived from Databricks Lakehouse Vector Indexing.\n\n## Python Quickstart Pattern\n\`\`\`python\nfrom google.adk.agents import LlmAgent\nfrom google.adk.tools import google_search\n\ndice_agent = LlmAgent(\n    model="gemini-2.5-flash",\n    name="question_answer_agent",\n    description="A helpful assistant agent that can answer questions.",\n    instruction="""Respond to the query using google search""",\n    tools=[google_search]\n)\n\`\`\`\n\n## Directives\n1. Use \`google.adk.agents.LlmAgent\` for multi-agent composition.\n2. Leverage LiteLLM or Vertex AI Model Garden for model abstraction.\n3. Enforce zero-token interception rules for cached queries.`
 						: `# SkillOpt Trained Skill: ${domainClean}\nOfficial skill directives for ${domainClean} derived from Databricks Lakehouse Vector Indexing.\n\n## Directives\n1. Use official CLI & SDK integration patterns.\n2. Enforce negative constraints and zero-token interception rules.\n3. Validate all payloads against schema boundaries.`,
-					"rules/boundary_checks.md": `# Boundary & Safety Rules\n1. Verify authentication headers before dispatching external API calls.\n2. Prevent infinite retry loops with max_iterations: 5 guard.`,
-					"agents/adk_agent.go": `package main
-
-import (
-	"context"
-	"log"
-	"os"
-
-	"google.golang.org/genai"
-	"google.golang.org/adk/v2/agent"
-	"google.golang.org/adk/v2/agent/llmagent"
-	"google.golang.org/adk/v2/cmd/launcher"
-	"google.golang.org/adk/v2/cmd/launcher/full"
-	"google.golang.org/adk/v2/model/gemini"
-	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/functiontool"
-)
-
-type ${domainClean.replace(/[^a-zA-Z0-9]/g, "")}Args struct {
-	Query string \`json:"query"\`
-}
-
-func main() {
-	ctx := context.Background()
-
-	model, err := gemini.NewModel(ctx, "gemini-2.5-flash", &genai.ClientConfig{
-		APIKey: os.Getenv("GOOGLE_API_KEY"),
-	})
-	if err != nil {
-		log.Fatalf("Failed to create Google ADK model: %v", err)
-	}
-
-	queryTool, err := functiontool.New[${domainClean.replace(/[^a-zA-Z0-9]/g, "")}Args, map[string]any](
-		functiontool.Config{
-			Name:        "${domainClean.replace(/[^a-zA-Z0-9]/g, "_")}_tool",
-			Description: "Executes queries against ${domainClean} API.",
-		},
-		func(ctx agent.Context, args ${domainClean.replace(/[^a-zA-Z0-9]/g, "")}Args) (map[string]any, error) {
-			return map[string]any{
-				"status": "success",
-				"result": "Execution payload for " + args.Query,
-			}, nil
-		},
-	)
-	if err != nil {
-		log.Fatalf("Failed to create tool: %v", err)
-	}
-
-	a, err := llmagent.New(llmagent.Config{
-		Name:        "${domainClean.replace(/[^a-zA-Z0-0]/g, "_")}_adk_agent",
-		Model:       model,
-		Description: "Production Google ADK agent derived from EVE skill bundle.",
-		Instruction: "You are an expert agent skilled in ${domainClean}. Execute user queries using ADK function tools.",
-		Tools: []tool.Tool{
-			queryTool,
-		},
-	})
-	if err != nil {
-		log.Fatalf("Failed to create ADK agent: %v", err)
-	}
-
-	config := &launcher.Config{
-		AgentLoader: agent.NewSingleLoader(a),
-	}
-
-	l := full.NewLauncher()
-	if err = l.Execute(ctx, config, os.Args[1:]); err != nil {
-		log.Fatalf("ADK launcher execution failed: %v", err)
-	}
-}`,
-					"agents/adk_agent.py": `from google.adk.agents import LlmAgent
-from google.adk.tools import google_search
-
-${domainClean.replace(/[^a-zA-Z0-0]/g, "_")}_adk_agent = LlmAgent(
-    model="gemini-2.5-flash",
-    name="${domainClean.replace(/[^a-zA-Z0-0]/g, "_")}_agent",
-    description="Production Google ADK Python Agent compiled via EVE pipeline.",
-    instruction="""Process user requests using Google ADK tools and Gemini 2.5.""",
-    tools=[google_search],
-)
-
-if __name__ == "__main__":
-    print("Google ADK Agent Initialized: ${domainClean}")
-`
 				},
-				mcpScript: includeMcp ? `# ${domainClean} FastMCP Server\nfrom mcp.server.fastmcp import FastMCP\nmcp = FastMCP("${domainClean.replace(/[^a-zA-Z0-0]/g, "_")}_mcp")\n\n@mcp.tool()\nasync def execute_query(query: str) -> str:\n    """Executes query against ${domainClean} API."""\n    return f"Result for {query}"\n` : null,
-				mcpConfig: includeMcp ? JSON.stringify({
-					mcpServers: {
-						[domainClean.replace(/[^a-zA-Z0-0]/g, "_")]: {
-							command: "python",
-							args: ["-m", "mcp_server"],
-						},
-					},
-				}) : null
+				mcpScript: includeMcp
+					? `# ${domainClean} FastMCP Server\nfrom mcp.server.fastmcp import FastMCP\nmcp = FastMCP("${domainClean.replace(/[^a-zA-Z0-9_]/g, "_")}_mcp")\n\n@mcp.tool()\nasync def execute_query(query: str) -> str:\n    """Executes query against ${domainClean} API."""\n    return f"Result for {query}"\n`
+					: null,
+				mcpConfig: includeMcp
+					? JSON.stringify({
+							mcpServers: {
+								[domainClean.replace(/[^a-zA-Z0-9_]/g, "_")]: {
+									command: "python",
+									args: ["-m", "mcp_server"],
+								},
+							},
+						})
+					: null,
 			};
 		}
 
-		// Phase 4: SkillOpt Validation Gate & Patch Application
-		logsList.push(`[${new Date().toLocaleTimeString()}] [SkillOpt Validation Gate] Epoch 2 Score: 0.96 / 1.00 (Pass). Applied 4 edit patches ([ADD] 2, [REPLACE] 2).`);
-		cotList.push(`Validation gate verified rule coverage. Zero-token interception index updated.`);
-		updateJobState({
-			status: "synthesizing",
-			progressStep: "SkillOpt Epoch 2: Applying edit patches & validating score gate...",
-			logs: [...logsList],
-			chainOfThought: [...cotList],
-		});
-		await new Promise((r) => setTimeout(r, 600));
-
-		// Phase 5: Sync & Skill Formatting
-		logsList.push(`[${new Date().toLocaleTimeString()}] [Redis Iris Engine] Syncing LangCache prompt caching & Context Retriever tool schemas...`);
-		logsList.push(`[${new Date().toLocaleTimeString()}] [Databricks Delta Lake] Replicating skill bundle metadata to \`skill_maker.skills\` Delta Lake table.`);
-		cotList.push(`Replicated skill bundle to Redis Iris context layer, Databricks Delta Lake, and local library.`);
-		updateJobState({
-			status: "eventual_sync",
-			progressStep: "Formatting into EVE Skill Bundle & writing to library...",
-			logs: [...logsList],
-			chainOfThought: [...cotList],
-			eventualSyncStatus: {
-				dbReplicated: true,
-				vectorIndexed: true,
-				cdnPushed: false,
-			},
-		});
-		await new Promise((r) => setTimeout(r, 500));
-
-		// Final Completion & DB Persistence
-		const totalLatency = Date.now() - startMs;
+		// Save to inMemorySkills and DB
 		const skillPayload = {
-			title: parsed.title || "Compiled AI Skill",
-			description: parsed.description || "Expert agentic skill compiled via Raven & SkillOpt.",
+			title: (parsed.title as string) || "Compiled AI Skill",
+			description:
+				(parsed.description as string) ||
+				"Expert agentic skill compiled via Raven & SkillOpt.",
 			content: parsed.eveFiles
 				? JSON.stringify(parsed.eveFiles)
 				: typeof parsed.content === "string"
-					? parsed.content
+					? (parsed.content as string)
 					: JSON.stringify({
-							"instructions.md": "# Lead Agent Coordinator\nPrimary Lead Agent Coordinator instructions.",
-							"skills/SKILL.md": "# SkillOpt Trained Skill\nCompiled skill instructions and rules.",
+							"instructions.md":
+								"# Lead Agent Coordinator\nPrimary Lead Agent Coordinator instructions.",
+							"skills/SKILL.md":
+								"# SkillOpt Trained Skill\nCompiled skill instructions and rules.",
 						}),
-			tags: Array.isArray(parsed.tags) ? parsed.tags : ["AI", "Agent"],
-			mcpScript: parsed.mcpScript || null,
-			mcpConfig: parsed.mcpConfig || null,
-			traceUrl: "https://smith.langchain.com/o/raven-compiler/projects/p/skillopt-eve-pipeline",
+			tags: (Array.isArray(parsed.tags) ? parsed.tags : ["AI", "Agent"]) as string[],
+			mcpScript: (parsed.mcpScript as string | null) || null,
+			mcpConfig: (parsed.mcpConfig as string | null) || null,
+			traceUrl:
+				"https://smith.langchain.com/o/raven-compiler/projects/p/skillopt-eve-pipeline",
 			sourceUrl: url,
 		};
 
 		let generatedSkillId = `skill_gen_${Date.now()}`;
 		try {
 			try {
-				await db.insert(users).values({ id: authorId, email: `${authorId}@raven.ai` }).onConflictDoNothing();
-			} catch (_e) {}
+				await db
+					.insert(users)
+					.values({ id: authorId, email: `${authorId}@raven.ai` })
+					.onConflictDoNothing();
+			} catch (e) {
+				console.warn("Could not insert user (may already exist):", e);
+			}
 
 			const [inserted] = await db
 				.insert(skills)
@@ -941,18 +669,21 @@ if __name__ == "__main__":
 			createdAt: new Date().toISOString(),
 		};
 
-		// Push to in-memory store as well
 		inMemorySkills.unshift(fullCreatedSkill);
 
-		logsList.push(`[${new Date().toLocaleTimeString()}] [Complete] EVE Skill Bundle created successfully (ID: ${generatedSkillId}). Saved to library.`);
-		cotList.push(`Skill compilation complete and verified. Ready for immediate deployment.`);
-
-		updateJobState({
+		const totalLatency = Date.now() - startMs;
+		updateState({
 			status: "completed",
 			progressStep: "Skill compilation complete and ready for use.",
 			latencyMs: totalLatency,
-			logs: logsList,
-			chainOfThought: cotList,
+			logs: [
+				...logsList,
+				`[${new Date().toLocaleTimeString()}] [Complete] EVE Skill Bundle created (ID: ${generatedSkillId})`,
+			],
+			chainOfThought: [
+				...cotList,
+				"Skill compilation complete via Gemini fallback.",
+			],
 			eventualSyncStatus: {
 				dbReplicated: true,
 				vectorIndexed: true,
@@ -962,51 +693,312 @@ if __name__ == "__main__":
 		});
 	} catch (err: unknown) {
 		const errorMsg = err instanceof Error ? err.message : String(err);
-		logsList.push(`[${new Date().toLocaleTimeString()}] [Compilation Error] ${errorMsg}`);
-		updateJobState({
+		updateState({
 			status: "failed",
 			error: errorMsg,
-			logs: logsList,
+			logs: [
+				...logsList,
+				`[${new Date().toLocaleTimeString()}] [Compilation Error] ${errorMsg}`,
+			],
 			chainOfThought: cotList,
 			progressStep: `Compilation error: ${errorMsg}`,
 		});
 	}
 }
 
-// ── generateBatchSkillsFromUrls ───────────────────────────────────────────────
-export const generateBatchSkillsFromUrls = createServerFn({ method: "POST" })
+// ── generateSkillFromUrl ──────────────────────────────────────────────────────
+export const generateSkillFromUrl = createServerFn({ method: "POST" })
 	.validator(
 		z.object({
-			urls: z.array(z.string().url("Invalid URL in batch")).min(1, "Provide at least 1 URL"),
+			url: z.string().url("Must be a valid URL"),
+			prompt: z.string().optional().or(z.literal("")),
 			include_mcp: z.boolean().default(false),
 		}),
 	)
 	.handler(async ({ data }) => {
-		const results = [];
+		let currentUserId = "user_mock";
+		try {
+			const { userId } = await auth();
+			if (userId) currentUserId = userId;
+		} catch (_err) {
+			// Fallback to user_mock if Clerk is uninitialized
+		}
+
+		// 1. Check Edge API Gateway - 0-Token Interception / Canonical Cache
+		const canonicalMatch = findCanonicalMatch(data.url);
+		const partitionNode = getWorkerPartitionNode(data.url);
+		const localId = ++localIdCounter;
+
+		if (canonicalMatch) {
+			const skillId = `skill_preset_${localId}_${Date.now()}`;
+			const canonicalSkill = {
+				id: skillId,
+				title: canonicalMatch.title,
+				description: canonicalMatch.description,
+				content: canonicalMatch.content,
+				tags: canonicalMatch.tags,
+				authorId: currentUserId,
+				upvotes: 12,
+				mcpScript: canonicalMatch.mcpScript,
+				mcpConfig: canonicalMatch.mcpConfig,
+				traceUrl:
+					"https://smith.langchain.com/o/zap-compiler/projects/p/canonical-cache-hit",
+				sourceUrl: data.url,
+				createdAt: new Date().toISOString(),
+			};
+			inMemorySkills.unshift(canonicalSkill);
+
+			localGenerationStore.set(localId, {
+				id: localId,
+				url: data.url,
+				status: "completed",
+				progressStep:
+					"Stage 0 LangCache Hit: Served directly from Canonical Skill Cache.",
+				logs: [
+					`[${new Date().toLocaleTimeString()}] [LangCache] Instant 0-token match detected for ${data.url}`,
+					`[${new Date().toLocaleTimeString()}] [Databricks Store] Retrieved pre-indexed EVE bundle from Delta Lake`,
+					`[${new Date().toLocaleTimeString()}] [Redis Iris] Served zero-token cached response in 14ms`,
+				],
+				chainOfThought: [
+					`Matched canonical rule signature for ${canonicalMatch.title}`,
+					`0-Token Interception avoided ${canonicalMatch.tokensSaved} tokens of LLM generation`,
+				],
+				partitionNode,
+				cacheHit: true,
+				cacheType: "0-Token Canonical Interception",
+				tokensSaved: canonicalMatch.tokensSaved,
+				latencyMs: 14,
+				eventualSyncStatus: {
+					dbReplicated: true,
+					vectorIndexed: true,
+					cdnPushed: true,
+				},
+				createdSkill: canonicalSkill,
+			});
+
+			return {
+				status: "enqueued",
+				db_id: localId,
+				cacheHit: true,
+				partitionNode,
+			};
+		}
+
+		// 1b. Check Persistent DB Cache (PostgreSQL / Neon)
+		try {
+			const existingSkills = await db
+				.select()
+				.from(skills)
+				.where(eq(skills.sourceUrl, data.url))
+				.limit(1);
+			if (existingSkills.length > 0) {
+				const existing = existingSkills[0];
+				const dbSkill = {
+					id: existing.id,
+					title: existing.title,
+					description: existing.description,
+					content: existing.content,
+					tags: existing.tags,
+					authorId: existing.authorId,
+					upvotes: existing.upvotes,
+					mcpScript: existing.mcpScript,
+					mcpConfig: existing.mcpConfig,
+					traceUrl: existing.traceUrl,
+					sourceUrl: existing.sourceUrl,
+					createdAt: existing.createdAt.toISOString(),
+				};
+				inMemorySkills.unshift(dbSkill);
+
+			localGenerationStore.set(localId, {
+				id: localId,
+				url: data.url,
+				status: "completed",
+				progressStep:
+					"Stage 0 LangCache Hit: Served directly from Neon Database Cache.",
+				partitionNode,
+				cacheHit: true,
+				cacheType: "PostgreSQL Skill Cache",
+				tokensSaved: 14500,
+				latencyMs: 18,
+				logs: [
+					`[${new Date().toLocaleTimeString()}] [DBCache] Found existing skill for ${data.url}`,
+				],
+				chainOfThought: [
+					`Retrieved existing skill bundle from Neon database`,
+				],
+				eventualSyncStatus: {
+					dbReplicated: true,
+					vectorIndexed: true,
+					cdnPushed: true,
+				},
+				createdSkill: dbSkill,
+			});
+
+				return {
+					status: "enqueued",
+					db_id: localId,
+					cacheHit: true,
+					partitionNode,
+				};
+			}
+		} catch (dbCacheErr) {
+			console.warn("DB cache query failed, falling through to generation pipeline:", dbCacheErr);
+		}
+
+		// 2. Uncached / Custom URL: Try FastAPI backend, fall back to Gemini
+		try {
+			const apiRes = await apiGenerateSkill(
+				data.url,
+				data.prompt || "",
+				data.include_mcp,
+				currentUserId !== "user_mock" ? undefined : "user_mock",
+			);
+
+			if (!apiRes.error && apiRes.status === "enqueued") {
+				const backendDbId = apiRes.db_id ?? localId;
+				// Store a pending record in local store for the polling loop
+			localGenerationStore.set(Number(backendDbId), {
+				id: Number(backendDbId),
+				url: data.url,
+				status: "enqueued",
+				progressStep:
+					"Request enqueued on FastAPI backend worker. Telemetry streaming...",
+				partitionNode,
+				cacheHit: false,
+				cacheType: "FastAPI Backend Generation",
+				tokensSaved: 0,
+				latencyMs: 0,
+				logs: [
+					`[${new Date().toLocaleTimeString()}] [Backend] Job enqueued on FastAPI backend (job_id: ${apiRes.job_id || "N/A"})`,
+				],
+				chainOfThought: [
+					`Dispatched generation to FastAPI backend for ${data.url}`,
+				],
+				eventualSyncStatus: {
+					dbReplicated: false,
+					vectorIndexed: false,
+					cdnPushed: false,
+				},
+			});
+
+				return {
+					status: "enqueued",
+					db_id: Number(backendDbId),
+					cacheHit: false,
+					partitionNode,
+				};
+			}
+
+			// If API returned an error, fall through to Gemini fallback
+			console.warn(
+				"FastAPI backend returned error, falling back to Gemini:",
+				apiRes.error,
+			);
+		} catch (apiErr) {
+			console.warn("FastAPI backend unreachable, falling through to Gemini fallback:", apiErr);
+		}
+
+		// 3. Fallback: Run Gemini direct pipeline asynchronously
+		const initialEntry: GenerationResult = {
+			id: localId,
+			url: data.url,
+			status: "enqueued",
+			progressStep:
+				"Analyzing URL and queueing skill compiler (Gemini fallback)...",
+			logs: [
+				`[${new Date().toLocaleTimeString()}] [Job Enqueued] Task #${localId} assigned to partition ${partitionNode}`,
+			],
+			chainOfThought: [
+				`Initialized fallback compiler task for ${data.url}`,
+			],
+			partitionNode,
+			cacheHit: false,
+			cacheType: "Gemini Fallback",
+			tokensSaved: 0,
+			latencyMs: 0,
+			eventualSyncStatus: {
+				dbReplicated: false,
+				vectorIndexed: false,
+				cdnPushed: false,
+			},
+		};
+		localGenerationStore.set(localId, initialEntry);
+
+		runGeminiFallback(
+			data.url,
+			data.prompt,
+			data.include_mcp,
+			currentUserId,
+			localId,
+		);
+
+		return {
+			status: "enqueued",
+			db_id: localId,
+			cacheHit: false,
+			partitionNode,
+		};
+	});
+
+// ── generateBatchSkillsFromUrls ───────────────────────────────────────────────
+export const generateBatchSkillsFromUrls = createServerFn({ method: "POST" })
+	.validator(
+		z.object({
+			urls: z
+				.array(z.string().url("Invalid URL in batch"))
+				.min(1, "Provide at least 1 URL"),
+			include_mcp: z.boolean().default(false),
+		}),
+	)
+	.handler(async ({ data }) => {
+		let currentUserId = "user_mock";
+		try {
+			const { userId } = await auth();
+			if (userId) currentUserId = userId;
+		} catch (_err) {
+			// Fallback
+		}
+
+		const results: Array<{
+			url: string;
+			dbId: number;
+			cacheHit: boolean;
+			partitionNode: string;
+			title: string;
+		}> = [];
+
+		// 1. Handle canonical (cache-hit) URLs immediately
+		const canonicalUrls: string[] = [];
+		const scrapeUrls: string[] = [];
+
 		for (const url of data.urls) {
 			const canonicalMatch = findCanonicalMatch(url);
-			const partitionNode = getWorkerPartitionNode(url);
-			const mockId = ++mockIdCounter;
-
 			if (canonicalMatch) {
-				const job: SystemJob = {
-					id: mockId,
+				canonicalUrls.push(url);
+				const localId = ++localIdCounter;
+				const partitionNode = getWorkerPartitionNode(url);
+				localGenerationStore.set(localId, {
+					id: localId,
 					url,
 					status: "completed",
-					progressStep: "0-Token Interception: Served directly from Canonical Skill Cache.",
+					progressStep:
+						"0-Token Interception: Served directly from Canonical Skill Cache.",
 					logs: [
-						`[${new Date().toLocaleTimeString()}] [Batch Interception] Served ${url} from canonical cache`
+						`[${new Date().toLocaleTimeString()}] [Batch Interception] Served ${url} from canonical cache`,
 					],
 					chainOfThought: [
-						`Batch hit canonical rule signature for ${canonicalMatch.title}`
+						`Batch hit canonical rule signature for ${canonicalMatch.title}`,
 					],
 					partitionNode,
 					cacheHit: true,
 					cacheType: "0-Token Canonical Interception",
 					tokensSaved: canonicalMatch.tokensSaved,
 					latencyMs: 12,
-					createdAt: new Date().toISOString(),
-					eventualSyncStatus: { dbReplicated: true, vectorIndexed: true, cdnPushed: true },
+					eventualSyncStatus: {
+						dbReplicated: true,
+						vectorIndexed: true,
+						cdnPushed: true,
+					},
 					createdSkill: {
 						title: canonicalMatch.title,
 						description: canonicalMatch.description,
@@ -1014,53 +1006,95 @@ export const generateBatchSkillsFromUrls = createServerFn({ method: "POST" })
 						tags: canonicalMatch.tags,
 						mcpScript: canonicalMatch.mcpScript,
 						mcpConfig: canonicalMatch.mcpConfig,
-						traceUrl: "https://smith.langchain.com/o/zap-compiler/projects/p/batch-canonical",
+						traceUrl:
+							"https://smith.langchain.com/o/zap-compiler/projects/p/batch-canonical",
 						sourceUrl: url,
+						id: `skill_preset_batch_${localId}`,
+						authorId: currentUserId,
+						upvotes: 0,
+						createdAt: new Date().toISOString(),
 					},
-				};
-				mockDatabase.set(mockId, job);
-				results.push({ url, dbId: mockId, cacheHit: true, partitionNode, title: canonicalMatch.title });
-			} else {
-				// Async pipeline job
-				const job: SystemJob = {
-					id: mockId,
+				});
+				results.push({
 					url,
-					status: "enqueued",
-					progressStep: "Batch skill compilation enqueued...",
-					logs: [
-						`[${new Date().toLocaleTimeString()}] [Batch Enqueued] Processing ${url}`
-					],
-					chainOfThought: [
-						`Enqueued batch compile task for ${url}`
-					],
+					dbId: localId,
+					cacheHit: true,
 					partitionNode,
-					cacheHit: false,
-					cacheType: "Standard Batch Generation",
-					tokensSaved: 0,
-					latencyMs: 0,
-					createdAt: new Date().toISOString(),
-					eventualSyncStatus: { dbReplicated: false, vectorIndexed: false, cdnPushed: false },
-				};
-				mockDatabase.set(mockId, job);
-				results.push({ url, dbId: mockId, cacheHit: false, partitionNode, title: "Processing..." });
+					title: canonicalMatch.title,
+				});
+			} else {
+				scrapeUrls.push(url);
+			}
+		}
 
-				// Launch asynchronous SkillOpt optimization pipeline for batch URL
-				(async () => {
-					const updateJobState = (patch: Partial<SystemJob>) => {
-						const existing = mockDatabase.get(mockId);
-						if (existing) {
-							mockDatabase.set(mockId, { ...existing, ...patch });
-						}
-					};
+		// 2. Send ALL non-canonical URLs in ONE backend call for bulk firecrawl scrape
+		if (scrapeUrls.length > 0) {
+			const localId = ++localIdCounter;
+			const partitionNode = getWorkerPartitionNode(scrapeUrls[0]);
 
-					await runSkillOptAndEvePipeline(
+			try {
+				const apiRes = await apiGenerateSkill(
+					scrapeUrls,
+					"",
+					data.include_mcp,
+					currentUserId !== "user_mock" ? undefined : "user_mock",
+				);
+
+				if (!apiRes.error && apiRes.db_id) {
+					localGenerationStore.set(Number(apiRes.db_id), {
+						id: Number(apiRes.db_id),
+						url: scrapeUrls[0],
+						status: "enqueued",
+						progressStep: `Bulk scrape enqueued for ${scrapeUrls.length} URLs on backend...`,
+						partitionNode,
+						cacheHit: false,
+						cacheType: "FastAPI Backend Generation",
+						tokensSaved: 0,
+						latencyMs: 0,
+						logs: [
+							`[${new Date().toLocaleTimeString()}] [Bulk] Enqueued ${scrapeUrls.length} URLs in one backend call`,
+						],
+						chainOfThought: [
+							`Bulk dispatched ${scrapeUrls.length} URLs for firecrawl scrape + databricks vector storage`,
+						],
+						eventualSyncStatus: {
+							dbReplicated: false,
+							vectorIndexed: false,
+							cdnPushed: false,
+						},
+					});
+
+					for (const url of scrapeUrls) {
+						results.push({
+							url,
+							dbId: Number(apiRes.db_id),
+							cacheHit: false,
+							partitionNode,
+							title: "Processing...",
+						});
+					}
+				} else {
+					throw new Error(apiRes.error || "Backend returned no db_id");
+				}
+			} catch (err) {
+				console.warn("Backend bulk call failed, falling through to Gemini:", err);
+				// 3. Fallback: single Gemini call summarizing all URLs
+				runGeminiFallback(
+					scrapeUrls.join(", "),
+					`Scrape and analyze these URLs: ${scrapeUrls.join(", ")}`,
+					data.include_mcp,
+					currentUserId !== "user_mock" ? currentUserId : "user_mock",
+					localId,
+				);
+				for (const url of scrapeUrls) {
+					results.push({
 						url,
-						undefined,
-						data.include_mcp,
-						"user_mock",
-						updateJobState,
-					);
-				})();
+						dbId: localId,
+						cacheHit: false,
+						partitionNode,
+						title: "Processing...",
+					});
+				}
 			}
 		}
 
@@ -1076,37 +1110,124 @@ export const getGenerationStatus = createServerFn({ method: "POST" })
 	.validator((dbId: number | string) => Number(dbId))
 	.handler(async ({ data }) => {
 		const numId = Number(data);
-		const job = mockDatabase.get(numId);
-		if (job) {
+
+		// 1. Check local store first (canonical cache & Gemini fallback results)
+		const local = localGenerationStore.get(numId);
+		if (local && local.status === "completed") {
 			return {
-				status: job.status,
-				progressStep: job.progressStep,
-				partitionNode: job.partitionNode,
-				cacheHit: job.cacheHit,
-				cacheType: job.cacheType,
-				tokensSaved: job.tokensSaved,
-				latencyMs: job.latencyMs,
-				eventualSyncStatus: job.eventualSyncStatus,
-				createdSkill: job.createdSkill,
-				logs: job.logs || [],
-				chainOfThought: job.chainOfThought || [],
-				error: job.error,
+				status: local.status,
+				progressStep: local.progressStep,
+				partitionNode: local.partitionNode,
+				cacheHit: local.cacheHit,
+				cacheType: local.cacheType,
+				tokensSaved: local.tokensSaved,
+				latencyMs: local.latencyMs,
+				eventualSyncStatus: local.eventualSyncStatus,
+				createdSkill: local.createdSkill,
+				logs: local.logs || [],
+				chainOfThought: local.chainOfThought || [],
+				error: local.error,
+			};
+		}
+
+		// Return pending status for locally-tracked jobs
+		if (local) {
+			return {
+				status: local.status,
+				progressStep: local.progressStep,
+				partitionNode: local.partitionNode,
+				cacheHit: local.cacheHit,
+				cacheType: local.cacheType,
+				tokensSaved: local.tokensSaved,
+				latencyMs: local.latencyMs,
+				eventualSyncStatus: local.eventualSyncStatus,
+				createdSkill: local.createdSkill,
+				logs: local.logs || [],
+				chainOfThought: local.chainOfThought || [],
+				error: local.error,
+			};
+		}
+
+		// 2. Try FastAPI backend
+		let currentUserId = "user_mock";
+		try {
+			const { userId } = await auth();
+			if (userId) currentUserId = userId;
+		} catch (_err) {
+			// Fallback
+		}
+
+		const backendRes = await apiGetSkillRequest(
+			numId,
+			currentUserId !== "user_mock" ? undefined : "user_mock",
+		);
+
+		if (!backendRes.error && backendRes.status) {
+			const partitionNode = getWorkerPartitionNode(
+				backendRes.url || "",
+			);
+			return {
+				status: backendRes.status,
+				progressStep:
+					backendRes.status === "completed"
+						? "Skill compilation complete."
+						: backendRes.status === "failed"
+							? `Compilation error: ${backendRes.error || "Unknown error"}`
+							: `Backend processing: ${backendRes.status}`,
+				partitionNode,
+				cacheHit: false,
+				cacheType: "FastAPI Backend Generation",
+				tokensSaved: 0,
+				latencyMs: 0,
+				eventualSyncStatus: {
+					dbReplicated: backendRes.status === "completed",
+					vectorIndexed: backendRes.status === "completed",
+					cdnPushed: backendRes.status === "completed",
+				},
+				createdSkill: backendRes.createdSkill
+					? {
+							id: `skill_backend_${numId}`,
+							title: backendRes.createdSkill.displayName || "Generated Skill",
+							description:
+								backendRes.createdSkill.description ||
+								"Custom skill created via AI",
+							content: backendRes.createdSkill.files?.["SKILL.md"] || "",
+							tags: [],
+							authorId: currentUserId,
+							upvotes: 0,
+							mcpScript:
+								backendRes.createdSkill.files?.mcp_server || null,
+							mcpConfig:
+								backendRes.createdSkill.files?.mcp_config || null,
+							traceUrl: backendRes.trace_url || null,
+							sourceUrl: backendRes.url || null,
+							createdAt: new Date().toISOString(),
+						}
+					: undefined,
+				logs: [],
+				chainOfThought: [],
+				error: backendRes.error || undefined,
 			};
 		}
 
 		return {
 			status: "failed",
 			error: "Job record not found in system state.",
+			logs: [],
+			chainOfThought: [],
 		};
 	});
 
 // ── getArchitectureTelemetry ───────────────────────────────────────────────────
 export const getArchitectureTelemetry = createServerFn({ method: "GET" }).handler(
 	async () => {
-		const jobs = Array.from(mockDatabase.values());
+		const jobs = Array.from(localGenerationStore.values());
 		const totalJobs = jobs.length;
 		const cacheHits = jobs.filter((j) => j.cacheHit).length;
-		const totalTokensSaved = jobs.reduce((acc, j) => acc + j.tokensSaved, 0);
+		const totalTokensSaved = jobs.reduce(
+			(acc, j) => acc + (j.tokensSaved || 0),
+			0,
+		);
 
 		return {
 			edgeGateway: {
@@ -1116,7 +1237,10 @@ export const getArchitectureTelemetry = createServerFn({ method: "GET" }).handle
 				tokenBucketCapacity: "10,000/sec",
 			},
 			canonicalCache: {
-				hitRatio: totalJobs > 0 ? `${((cacheHits / totalJobs) * 100).toFixed(1)}%` : "84.6%",
+				hitRatio:
+					totalJobs > 0
+						? `${((cacheHits / totalJobs) * 100).toFixed(1)}%`
+						: "84.6%",
 				totalTokensSaved,
 				avgHitLatencyMs: 12,
 			},
@@ -1147,8 +1271,10 @@ export const getArchitectureTelemetry = createServerFn({ method: "GET" }).handle
 			partitionRing: {
 				shards: WORKER_NODES.map((node) => ({
 					name: node,
-					activeJobs: jobs.filter((j) => j.partitionNode === node && j.status !== "completed").length,
-					status: "active",
+					activeJobs: jobs.filter(
+						(j) => j.partitionNode === node && j.status !== "completed",
+					).length,
+					status: "active" as const,
 				})),
 			},
 			eventualSync: {
@@ -1162,14 +1288,22 @@ export const getArchitectureTelemetry = createServerFn({ method: "GET" }).handle
 
 // ── pingIntegrations ──────────────────────────────────────────────────────────
 export const pingIntegrations = createServerFn({ method: "POST" }).handler(async () => {
-	const results: Record<string, { status: "ok" | "error"; message: string; latencyMs: number }> = {};
+	const results: Record<
+		string,
+		{ status: "ok" | "error"; message: string; latencyMs: number }
+	> = {};
 
 	// 1. Ping Gemini API key execution
 	const startGemini = Date.now();
 	try {
 		const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
 		if (!apiKey) {
-			results.gemini = { status: "error", message: "GEMINI_API_KEY / GOOGLE_API_KEY not found in process environment", latencyMs: 0 };
+			results.gemini = {
+				status: "error",
+				message:
+					"GEMINI_API_KEY / GOOGLE_API_KEY not found in process environment",
+				latencyMs: 0,
+			};
 		} else {
 			const { GoogleGenAI } = await import("@google/genai");
 			const ai = new GoogleGenAI({ apiKey });
@@ -1184,7 +1318,11 @@ export const pingIntegrations = createServerFn({ method: "POST" }).handler(async
 			};
 		}
 	} catch (err) {
-		results.gemini = { status: "error", message: err instanceof Error ? err.message : String(err), latencyMs: Date.now() - startGemini };
+		results.gemini = {
+			status: "error",
+			message: err instanceof Error ? err.message : String(err),
+			latencyMs: Date.now() - startGemini,
+		};
 	}
 
 	// 2. Ping Physical Lakehouse / Databricks Store
@@ -1220,5 +1358,3 @@ print(json.dumps({'count': len(skills), 'store_type': type(store).__name__}))
 
 	return results;
 });
-
-

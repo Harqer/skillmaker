@@ -121,10 +121,10 @@ class SkillVectorStore:
 
     # ── Retrieval ─────────────────────────────────────────────────────────────
 
-    def search_dynamic(self, query: str, skill_id: Optional[str] = None, score_threshold: float = 0.5) -> List[dict]:
+    def search_dynamic(self, query: str, skill_id: Optional[str] = None, score_threshold: float = 0.5, num_results: int = 20) -> List[dict]:
         """
         Finds semantically relevant chunks dynamically using a similarity threshold (distance).
-        No hardcoded limit of results!
+        No hardcoded limit of results — uses num_results parameter (default 20).
         """
         embedding = self._embeddings.embed_query(query)
 
@@ -132,7 +132,7 @@ class SkillVectorStore:
             vector=embedding,
             vector_field_name="embedding",
             return_fields=["skill_id", "header", "content"],
-            num_results=100,
+            num_results=num_results,
         )
 
         if skill_id:
@@ -161,6 +161,10 @@ class SkillVectorStore:
         """
         from langchain_community.vectorstores import Redis as LangChainRedis
         try:
+            # Parallel Redis connection for LangChain retriever compatibility.
+            # The existing SearchIndex handles ingestion/query directly;
+            # LangChain's Redis wrapper provides a standard LangChain
+            # VectorStoreRetriever interface for framework interop.
             vector_store = LangChainRedis.from_existing_index(
                 embedding=self._embeddings,
                 index_name=index_name,

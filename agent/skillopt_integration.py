@@ -20,9 +20,10 @@ Secrets are injected via Infisical — no .env usage (public repo).
 """
 
 import json
-import uuid
 import os
+import sys
 import textwrap
+import uuid
 from typing import Optional
 
 import config  # noqa — runs Infisical SDK bootstrap
@@ -172,15 +173,27 @@ def register_skill_for_skillopt(
             "source_url": target_url,
         }]
 
-    # Train/val/test split: 60% / 20% / 20% (min 1 per split)
+    # Train/val/test split: proportional with n_val + n_test + n_train == n
     n = len(all_items)
-    n_val  = max(1, int(n * 0.20))
-    n_test = max(1, int(n * 0.20))
-    n_train = max(1, n - n_val - n_test)
+    if n < 3:
+        train_items = list(all_items)
+        val_items = []
+        test_items = []
+    else:
+        n_val  = max(1, round(n * 0.20))
+        n_test = max(1, round(n * 0.20))
+        remaining = n - n_val - n_test
+        n_train = max(1, remaining)
+        # Rebalance if rounding overshot
+        if n_train + n_val + n_test > n:
+            n_val = max(1, n_val - 1) if n_val > 1 else n_val
+        if n_train + n_val + n_test > n:
+            n_test = max(1, n_test - 1) if n_test > 1 else n_test
+        n_train = n - n_val - n_test
 
-    train_items = all_items[:n_train]
-    val_items   = all_items[n_train:n_train + n_val]
-    test_items  = all_items[n_train + n_val:]
+        train_items = all_items[:n_train]
+        val_items   = all_items[n_train:n_train + n_val]
+        test_items  = all_items[n_train + n_val:]
 
     data_dir = os.path.join(SKILLOPT_ROOT, "data", f"{skill_name}_split")
     for split_name, split_items in [
@@ -205,15 +218,20 @@ def register_skill_for_skillopt(
     # - lr_scheduler: cosine  (beats constant)
     # - num_epochs: 3  (skills converge in 2–4 epochs)
     # - slow_update + meta_skill: on (curb forgetting, improve reflection)
+    #
+    # NOTE: This YAML is for the SkillOpt training pipeline, NOT the sleep
+    # cycle. The sleep cycle uses SleepConfig(data={...}) constructed in
+    # run_skillopt_cycle() instead. If you change model fields here, update
+    # the sleep config's optimizer_backend/target_backend keys too.
     config_yaml = textwrap.dedent(f"""\
         _base_: ../_base_/default.yaml
 
         model:
-          # Use Gemini via OpenAI-compatible endpoint or google backend
-          # when SkillOpt adds native Google support.
-          # Until then, point to an OpenAI-compatible proxy for Gemini.
-          optimizer_model: gemini-2.0-flash
-          target_model: gemini-2.0-flash
+          backend: openai_chat
+          optimizer: gemini-2.0-flash
+          target: gemini-2.0-flash
+          optimizer_backend: openai_chat
+          target_backend: openai_chat
           reasoning_effort: medium
 
         train:
@@ -298,10 +316,15 @@ def reingest_optimized_skill(skill_name: str, db_id: Optional[int] = None):
         store = get_databricks_store()
         store.write_skill(SkillRecord(
             skill_id=str(db_id) if db_id else skill_name,
+            folder_name=skill_name,
             skill_content=content,
             target_url="",
+            mcp_script=None,
+            mcp_config=None,
+            langsmith_trace_url=None,
+            thread_id="",
+            user_id="",
             created_at=datetime.datetime.utcnow().isoformat(),
-            version=f"skillopt_best",
         ))
         print(f"[skillopt] Databricks updated for {skill_name}")
     except Exception as exc:
@@ -309,7 +332,7 @@ def reingest_optimized_skill(skill_name: str, db_id: Optional[int] = None):
 
     # 3. Update Redis vector store
     try:
-        from skill_store import SkillVectorStore
+        from context_surfaces import SkillVectorStore
         store = SkillVectorStore()
         skill_id = str(db_id) if db_id else skill_name
         n = store.ingest(skill_id=skill_id, markdown=content)
@@ -360,6 +383,11 @@ def run_skillopt_cycle(db_id: int) -> dict:
 
             cfg = SleepConfig({
                 "backend": backend_choice,
+                "model": "gemini-2.0-flash",
+                "optimizer_backend": "openai_chat",
+                "optimizer_model": "gemini-2.0-flash",
+                "target_backend": "openai_chat",
+                "target_model": "gemini-2.0-flash",
                 "budget_usd": 1.0,
                 "project": skill_name,
                 "progress": True,
@@ -396,7 +424,7 @@ def run_skillopt_cycle(db_id: int) -> dict:
                 "status": "completed",
                 "skill_name": skill_name,
                 "adopted_count": len(outcome.adopted_paths),
-                "staged_count": len(report.candidates) if hasattr(report, "candidates") else 0,
+                "staged_count": len(report.edits),
                 "best_skill_path": best_skill_path,
             }
         finally:

@@ -1,0 +1,94 @@
+# ABSO (Skill Maker) — no-mistakes repo configuration.
+# Architectural patterns defined in the Lavish artifact (abso-overview.html)
+# are encoded here as documentation placement policy and custom review directives.
+
+# Disable project-level agent settings so gate agents never adopt an ABSO
+# identity that could mutate the pipeline state.
+disable_project_settings: true
+
+# ── Lint & Format commands ────────────────────────────────────────────────
+commands:
+  # JS/TS linting via Biome (matches package.json "biome check")
+  lint: |
+    npx biome check --write --unsafe 2>/dev/null || true
+    ruff check --fix agent/ 2>/dev/null || true
+  format: |
+    npx biome format --write 2>/dev/null || true
+    ruff format agent/ 2>/dev/null || true
+
+# ── Test ──────────────────────────────────────────────────────────────────
+test:
+  evidence:
+    store_in_repo: false
+
+# ── Documentation ownership ───────────────────────────────────────────────
+# For the Document step: tells gate agents where prose changes should land
+# and what architectural patterns the review step enforces.
+document:
+  instructions: |
+    Architecture and design decisions are defined in `/home/shaolin/.lavish/abso-overview.html`
+    and the canonical `/home/shaolin/ABSO/ARCHITECTURE_REFERENCE.md`.
+
+    ## Architectural Patterns (enforced by review step)
+
+    ### No-Mock Discipline (HARD POLICY)
+    No mock data, placeholder UI, or demo implementations. All code paths
+    must wire to real endpoints, use production fallbacks (error states,
+    skeleton loaders, retry policies), and prefer existing platforms over
+    custom builds.
+
+    ### Bounded Iterations (HARD POLICY)
+    Every subagent directive must include `max_iterations: 5`. No unbounded
+    agentic loops. Verified patterns from loop-engineering/ only.
+
+    ### EVE Bundle Format
+    Generated skills must follow:
+      instructions.md   — Lead coordinator entry point
+      subagents/         — Specialist subagents (max_iterations: 5 each)
+      skills/SKILL.md    — Core directives
+      rules/             — Edge case rules
+      mcp/               — FastMCP server (optional)
+      config.json        — MCP config & metadata
+
+    ### Dual Database Strategy
+    Neon PostgreSQL (Drizzle ORM)   → skill catalog + user management
+    Databricks Delta Lake           → vector search + analytics
+    Redis (Cache + Iris)            → caching + real-time context
+
+    ### Technology Stack (LOCKED)
+    Frontend: TanStack Start (React 19), Vite 8, Tailwind CSS 4,
+              TanStack Router, @base-ui/react, Clerk Auth, Framer Motion,
+              React Query 5
+    Backend:  FastAPI (Python), LangGraph, Gemini 2.5 Flash, AI SDK,
+              Firecrawl, Databricks, Redis, RQ Workers
+    Data:     Neon PostgreSQL, Drizzle ORM (TS), SQLModel (Python),
+              BoxLite Sandbox, Infisical, LangSmith, PostHog, Biome
+
+    ## Key files
+    agent/orchestrator.py        — LangGraph pipeline entry point
+    agent/raven_bridge.py         — Raven deep research bridge
+    agent/api.py                 — FastAPI routes
+    agent/worker.py              — RQ background worker
+    agent/scraper.py             — Document ingestion
+    agent/databricks_store.py    — Databricks Lakehouse client
+    agent/security_sandbox.py    — Security sandbox
+    agent/mcp_generator.py       — MCP server scaffold
+    agent/context_surfaces.py    — Vector store for skills
+    agent/memory_client.py       — Redis agent memory
+    agent/skillopt_integration.py — SkillOpt training integration
+
+    agent/*.py changes → review for architectural compliance
+    src/                → TanStack Start frontend (React 19, Vite 8, Tailwind 4)
+
+# ── Custom review auto-fix limits ─────────────────────────────────────────
+# Auto-fix is safe for lint and format; review requires human judgment
+# for architectural pattern violations (no-mock, bounded iterations, stack).
+auto_fix:
+  lint: 3
+  format: 3
+  review: 0       # Disabled by default — architectural violations need
+                   # captain approval. Re-enable only for mechanical fixes.
+  test: 3
+  rebase: 3
+  document: 3
+  ci: 3

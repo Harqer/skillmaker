@@ -19,16 +19,55 @@ if agent_dir not in sys.path:
 if raven_dir not in sys.path:
     sys.path.insert(0, raven_dir)
 
-def run_raven_synthesis(url: str, prompt: str = "", include_mcp: bool = False):
+def run_raven_synthesis(urls: list[str], prompt: str = "", include_mcp: bool = False):
     """
     Executes Raven Python Engine to perform deep research and generate a real EVE Skill Bundle.
-    Uses google-genai / LangGraph / Raven CLI.
+    Bulk-scrapes ALL urls, stores every markdown in Databricks vector embeddings,
+    then uses google-genai / LangGraph / Raven CLI for synthesis.
     """
+    if isinstance(urls, str):
+        urls = [urls]
+    primary_url = urls[0]
+
     api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
     if not api_key:
         return {
             "error": "No API key configured (GEMINI_API_KEY or GOOGLE_API_KEY environment variable missing)."
         }
+
+    # ── Bulk scrape ALL URLs and store in Databricks ───────────────────────────
+    try:
+        from scraper import bulk_scrape_docs
+        bulk_markdowns = bulk_scrape_docs(urls)
+        sys.stderr.write(f"[Bridge] Bulk scraped {len(bulk_markdowns)} URLs ({sum(len(v) for v in bulk_markdowns.values()):,} total chars)\n")
+
+        try:
+            from databricks_store import get_store, SkillRecord
+            db_store = get_store()
+            if db_store:
+                for scrape_url, md in bulk_markdowns.items():
+                    if md.startswith("[scraper] bulk scrape failed"):
+                        continue
+                    domain = scrape_url.replace("https://", "").replace("http://", "").split("/")[0]
+                    import uuid
+                    db_store.write_skill(SkillRecord(
+                        skill_id=f"bridge_bulk_{uuid.uuid4().hex[:8]}",
+                        folder_name=domain,
+                        target_url=scrape_url,
+                        skill_content=f"# Bulk Documentation Corpus for {scrape_url}\n\n{md}",
+                        mcp_script=None,
+                        mcp_config=None,
+                        langsmith_trace_url=None,
+                        thread_id="raven_subprocess_bridge",
+                        user_id="raven_engine",
+                        tags=["databricks_vector_index", "bulk_markdown", "lakehouse", "bridge_bulk"]
+                    ))
+                sys.stderr.write(f"[Bridge] Stored {len(bulk_markdowns)} bulk markdowns in Databricks Delta Lake\n")
+        except Exception as db_err:
+            sys.stderr.write(f"[Bridge Databricks Warning] {db_err}\n")
+    except Exception as scrape_err:
+        sys.stderr.write(f"[Bridge Scraper Warning] {scrape_err}\n")
+        bulk_markdowns = {}
 
     system_instruction = """You are the Raven Deep Research Compiler, SkillOpt Prompt Optimizer, and EVE Skill Bundle Generator.
 Your task is to run an end-to-end multi-stage pipeline (Raven Deep Research -> Databricks Lakehouse Vector Indexing -> EVE Formatting -> SkillOpt Optimization -> Redis Iris Indexing) to produce a production-grade EVE Agent Directory.
@@ -71,7 +110,7 @@ Return valid JSON with schema:
   "mcpConfig": "JSON string for MCP config if requested else null"
 }"""
 
-    prompt_content = f"Target URL: {url}\nPrompt Directives: {prompt or 'Auto-optimize from documentation'}\nInclude MCP: {include_mcp}"
+    prompt_content = f"Target URLs: {', '.join(urls)}\nPrompt Directives: {prompt or 'Auto-optimize from documentation'}\nInclude MCP: {include_mcp}"
 
     # Primary attempt using google.genai, fallback to standard urllib.request REST API call
     try:
@@ -141,7 +180,7 @@ Return valid JSON with schema:
                     db_store.write_skill(SkillRecord(
                         skill_id=skill_id,
                         folder_name=skill_folder_name,
-                        target_url=url,
+                        target_url=primary_url,
                         skill_content=skill_md,
                         mcp_script=parsed.get("mcpScript"),
                         mcp_config=parsed.get("mcpConfig") if isinstance(parsed.get("mcpConfig"), dict) else None,
@@ -155,7 +194,7 @@ Return valid JSON with schema:
                         thread_id="raven_subprocess_bridge",
                         user_id="raven_engine",
                         trace_url=None,
-                        target_url=url
+                        target_url=primary_url,
                     )
                     parsed["databricks_persisted"] = True
                     sys.stderr.write(f"[Databricks Store] Successfully persisted skill record {skill_id} to Delta Lake\n")
@@ -163,6 +202,8 @@ Return valid JSON with schema:
                 sys.stderr.write(f"[Databricks Store Warning] {db_err}\n")
                 parsed["databricks_persisted"] = False
 
+            parsed["bulk_urls"] = urls
+            parsed["bulk_markdowns"] = {k: len(v) for k, v in bulk_markdowns.items()}
             return parsed
         else:
             return {"error": "Raven synthesis model returned empty response."}
@@ -172,13 +213,13 @@ Return valid JSON with schema:
 
 def main():
     parser = argparse.ArgumentParser(description="Raven Subprocess Bridge for EVE Skill Generation")
-    parser.add_argument("--url", required=True, help="Target URL to scrape & research")
+    parser.add_argument("--urls", nargs="+", required=True, help="One or more target URLs to scrape & research")
     parser.add_argument("--prompt", default="", help="Prompt directives")
     parser.add_argument("--include-mcp", action="store_true", help="Include MCP server generation")
 
     args = parser.parse_args()
 
-    result = run_raven_synthesis(url=args.url, prompt=args.prompt, include_mcp=args.include_mcp)
+    result = run_raven_synthesis(urls=args.urls, prompt=args.prompt, include_mcp=args.include_mcp)
     print(json.dumps(result))
 
 if __name__ == "__main__":

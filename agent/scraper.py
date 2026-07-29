@@ -2,19 +2,27 @@
 scraper.py — Multi-page markdown aggregator for Skill Maker
 
 Priority chain for a given URL:
-  1. SimpleScraper /v1/extract  → single-page markdown (fast, preferred)
-  2. Firecrawl  /v1/scrape      → single-page markdown (fallback)
-  3. Firecrawl  /v1/crawl       → multi-page async crawl (deep-docs fallback)
+  1. Jina Reader API     → single-page markdown (fast, preferred)
+  2. SimpleScraper        /v1/extract → single-page markdown (fast)
+  3. Firecrawl  /v1/scrape → single-page markdown (fallback)
+  4. Firecrawl  /v1/crawl  → multi-page async crawl (deep-docs fallback)
 
-All scraped content is returned as a single merged markdown string ready
-to be passed to the LLM for skill generation and to SkillOpt as training
-context.
+Bulk entry point:
+  - bulk_scrape_docs(urls) → dict[str, str] — scrapes ALL urls in parallel using
+    the full layer chain per URL. Each result is a merged markdown string.
 
-Secrets are injected via Infisical (SIMPLESCRAPER_API_KEY, FIRECRAWL_API_KEY).
+All scraped content is returned as markdown strings ready to be passed to the
+LLM for skill generation, stored in Databricks vector embeddings, and fed to
+SkillOpt as training context.
+
+Secrets are injected via Infisical (SIMPLESCRAPER_API_KEY, FIRECRAWL_API_KEY, JINA_API_KEY).
 No .env usage — this is a public repo.
 """
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
+
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
@@ -47,23 +55,19 @@ def _scrape_jina_reader(url: str) -> str | None:
         return None
 
     print(f"[scraper] Jina Reader → {url}")
-    try:
-        jina_url = f"https://r.jina.ai/{url}"
-        headers = {
-            "Authorization": f"Bearer {JINA_API_KEY}",
-            "X-With-Generated-Alt": "true",
-            "X-Respond-With": "markdown",
-        }
-        resp = requests.get(jina_url, headers=headers, timeout=_REQUEST_TIMEOUT)
-        resp.raise_for_status()
-        md = resp.text
-        if md and len(md.strip()) > 50:
-            print(f"[scraper] Jina Reader ✓  ({len(md):,} chars)")
-            return md
-        return None
-    except Exception as exc:
-        print(f"[scraper] Jina Reader error: {exc}")
-        return None
+    jina_url = f"https://r.jina.ai/{url}"
+    headers = {
+        "Authorization": f"Bearer {JINA_API_KEY}",
+        "X-With-Generated-Alt": "true",
+        "X-Respond-With": "markdown",
+    }
+    resp = requests.get(jina_url, headers=headers, timeout=_REQUEST_TIMEOUT)
+    resp.raise_for_status()
+    md = resp.text
+    if md and len(md.strip()) > 50:
+        print(f"[scraper] Jina Reader ✓  ({len(md):,} chars)")
+        return md
+    return None
 
 
 # ── Layer 2: SimpleScraper /v1/extract ───────────────────────────────────────
@@ -80,30 +84,26 @@ def _scrape_simplescraper(url: str) -> str | None:
         return None
 
     print(f"[scraper] SimpleScraper → {url}")
-    try:
-        resp = requests.post(
-            _SIMPLESCRAPER_EXTRACT,
-            headers={
-                "Authorization": f"Bearer {SIMPLESCRAPER_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={"url": url, "extract_format": "markdown"},
-            timeout=_REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    resp = requests.post(
+        _SIMPLESCRAPER_EXTRACT,
+        headers={
+            "Authorization": f"Bearer {SIMPLESCRAPER_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={"url": url, "extract_format": "markdown"},
+        timeout=_REQUEST_TIMEOUT,
+    )
+    resp.raise_for_status()
+    data = resp.json()
 
-        # API returns {"markdown": "..."} or {"data": {"markdown": "..."}}
-        md = data.get("markdown") or data.get("data", {}).get("markdown")
-        if md:
-            print(f"[scraper] SimpleScraper ✓  ({len(md):,} chars)")
-            return md
+    # API returns {"markdown": "..."} or {"data": {"markdown": "..."}}
+    md = data.get("markdown") or data.get("data", {}).get("markdown")
+    if md:
+        print(f"[scraper] SimpleScraper ✓  ({len(md):,} chars)")
+        return md
 
-        print("[scraper] SimpleScraper: no markdown field in response.")
-        return None
-    except Exception as exc:
-        print(f"[scraper] SimpleScraper error: {exc}")
-        return None
+    print("[scraper] SimpleScraper: no markdown field in response.")
+    return None
 
 
 # ── Layer 2: Firecrawl /v1/scrape (single page) ──────────────────────────────
@@ -120,31 +120,32 @@ def _scrape_firecrawl_single(url: str) -> str | None:
         return None
 
     print(f"[scraper] Firecrawl /scrape → {url}")
-    try:
-        resp = requests.post(
-            _FIRECRAWL_SCRAPE,
-            headers={"Authorization": f"Bearer {FIRECRAWL_API_KEY}"},
-            json={"url": url, "formats": ["markdown"]},
-            timeout=_REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    resp = requests.post(
+        _FIRECRAWL_SCRAPE,
+        headers={"Authorization": f"Bearer {FIRECRAWL_API_KEY}"},
+        json={"url": url, "formats": ["markdown"]},
+        timeout=_REQUEST_TIMEOUT,
+    )
+    resp.raise_for_status()
+    data = resp.json()
 
-        if data.get("success"):
-            md = data.get("data", {}).get("markdown")
-            if md:
-                print(f"[scraper] Firecrawl /scrape ✓  ({len(md):,} chars)")
-                return md
+    if data.get("success"):
+        md = data.get("data", {}).get("markdown")
+        if md:
+            print(f"[scraper] Firecrawl /scrape ✓  ({len(md):,} chars)")
+            return md
 
-        print("[scraper] Firecrawl /scrape: no markdown or success=False.")
-        return None
-    except Exception as exc:
-        print(f"[scraper] Firecrawl /scrape error: {exc}")
-        return None
+    print("[scraper] Firecrawl /scrape: no markdown or success=False.")
+    return None
 
 
 # ── Layer 3: Firecrawl /v1/crawl (multi-page async) ──────────────────────────
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((requests.exceptions.RequestException, requests.exceptions.Timeout)),
+)
 def _scrape_firecrawl_crawl(url: str) -> str | None:
     """
     Multi-page async crawl via Firecrawl /v1/crawl (deep-docs fallback).
@@ -160,43 +161,51 @@ def _scrape_firecrawl_crawl(url: str) -> str | None:
     headers = {"Authorization": f"Bearer {FIRECRAWL_API_KEY}"}
 
     # 1. Submit crawl job
-    try:
-        resp = requests.post(
-            _FIRECRAWL_CRAWL,
-            headers=headers,
-            json={
-                "url": url,
-                "limit": _CRAWL_MAX_PAGES,
-                "scrapeOptions": {"formats": ["markdown"]},
-                "ignoreSitemap": False,
-                "allowBackwardLinks": False,
-            },
-            timeout=_REQUEST_TIMEOUT,
-        )
-        resp.raise_for_status()
-        job_id = resp.json().get("id")
-        if not job_id:
-            print("[scraper] Firecrawl /crawl: no job id returned.")
-            return None
-        print(f"[scraper] Firecrawl /crawl job started: {job_id}")
-    except Exception as exc:
-        print(f"[scraper] Firecrawl /crawl submit error: {exc}")
+    resp = requests.post(
+        _FIRECRAWL_CRAWL,
+        headers=headers,
+        json={
+            "url": url,
+            "limit": _CRAWL_MAX_PAGES,
+            "scrapeOptions": {"formats": ["markdown"]},
+            "ignoreSitemap": False,
+            "allowBackwardLinks": False,
+        },
+        timeout=_REQUEST_TIMEOUT,
+    )
+    resp.raise_for_status()
+    job_id = resp.json().get("id")
+    if not job_id:
+        print("[scraper] Firecrawl /crawl: no job id returned.")
         return None
+    print(f"[scraper] Firecrawl /crawl job started: {job_id}")
 
-    # 2. Poll for completion
+    # 2. Poll for completion with local retries on transient failures
     status_url = _FIRECRAWL_CRAWL_GET.format(job_id=job_id)
     deadline = time.time() + _CRAWL_MAX_WAIT
     pages: list[dict] = []
 
     while time.time() < deadline:
         time.sleep(_CRAWL_POLL_INTERVAL)
-        try:
-            status_resp = requests.get(status_url, headers=headers, timeout=_REQUEST_TIMEOUT)
-            status_resp.raise_for_status()
-            status_data = status_resp.json()
-        except Exception as exc:
-            print(f"[scraper] Firecrawl poll error: {exc}")
-            break
+
+        # Retry individual poll on transient failure (do not break the whole crawl)
+        status_data = None
+        for poll_attempt in range(3):
+            try:
+                status_resp = requests.get(status_url, headers=headers, timeout=_REQUEST_TIMEOUT)
+                status_resp.raise_for_status()
+                status_data = status_resp.json()
+                break
+            except Exception as exc:
+                if poll_attempt < 2:
+                    print(f"[scraper] Firecrawl poll error (attempt {poll_attempt+1}/3): {exc}")
+                    time.sleep(2)
+                else:
+                    print(f"[scraper] Firecrawl poll error after 3 attempts: {exc}")
+
+        if status_data is None:
+            # All poll retries failed — continue outer loop to try next interval
+            continue
 
         job_status = status_data.get("status", "")
         print(f"[scraper] Firecrawl /crawl status: {job_status} "
@@ -246,10 +255,29 @@ def scrape_docs(url: str) -> str:
       3. Firecrawl /scrape  (single page fallback)
       4. Firecrawl /crawl   (multi-page deep crawl, last resort)
     """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        err = f"[scraper] Invalid URL (must be http/https): {url}"
+        print(err)
+        return err
+
+    layer_names = {
+        _scrape_jina_reader: "jina_reader",
+        _scrape_simplescraper: "simplescraper",
+        _scrape_firecrawl_single: "firecrawl_scrape",
+        _scrape_firecrawl_crawl: "firecrawl_crawl",
+    }
+
     for scraper_fn in (_scrape_jina_reader, _scrape_simplescraper, _scrape_firecrawl_single, _scrape_firecrawl_crawl):
-        content = scraper_fn(url)
-        if content:
-            return content
+        try:
+            content = scraper_fn(url)
+            if content:
+                source = layer_names[scraper_fn]
+                print(f"[scraper] Succeeded with {source}")
+                return content
+        except Exception as exc:
+            print(f"[scraper] {layer_names[scraper_fn]} failed after retries: {exc}")
+            continue
 
     return (
         f"[scraper] Failed to retrieve content from {url} "
@@ -258,8 +286,44 @@ def scrape_docs(url: str) -> str:
     )
 
 
+def bulk_scrape_docs(urls: list[str], max_workers: int = 5) -> dict[str, str]:
+    """
+    Scrape ALL URLs in bulk using the full layer chain per URL.
+
+    Each URL is processed in parallel via a thread pool.  For every URL the
+    same fallback chain runs (Jina → SimpleScraper → Firecrawl /scrape →
+    Firecrawl /crawl) and the first successful markdown result is kept.
+
+    Returns a dict mapping each input URL to its merged markdown string.
+    URLs that failed all layers still have an entry with an error message
+    so callers can distinguish "scraped but empty" from "not attempted".
+    """
+    results: dict[str, str] = {}
+
+    def _scrape_one(u: str) -> tuple[str, str]:
+        return u, scrape_docs(u)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = {pool.submit(_scrape_one, u): u for u in urls}
+        for future in as_completed(futures):
+            u = futures[future]
+            try:
+                url_out, md = future.result()
+                results[url_out] = md
+                print(f"[scraper] bulk done ({len(results)}/{len(urls)}): {url_out} "
+                      f"({len(md):,} chars)")
+            except Exception as exc:
+                results[u] = f"[scraper] bulk scrape failed for {u}: {exc}"
+                print(f"[scraper] bulk error for {u}: {exc}")
+
+    return results
+
+
 def scrape_docs_to_temp_store(url: str) -> dict:
     """
+    NOTE: This function is currently unused (the SkillOpt pipeline references
+    it in comments but does not call it). Kept for future structured use.
+
     Scrape a URL and return a structured result for downstream use.
 
     Returns:

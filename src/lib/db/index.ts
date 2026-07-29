@@ -187,6 +187,34 @@ function extractConditionString(condition: any): string {
 	}
 }
 
+// Extract column name and value from a Drizzle eq() condition AST.
+// Drizzle's eq(column, value) → SQL`${column} = ${value}` stores
+// fragments in queryChunks: [Column, " = ", Param].
+// biome-ignore lint/suspicious/noExplicitAny: custom query helper
+function extractColumnFilter(condition: any): { column: string; value: any } | null {
+	if (!condition) return null;
+	const chunks = condition.queryChunks;
+	if (!Array.isArray(chunks)) return null;
+	let columnName: string | null = null;
+	let value: any;
+	for (const chunk of chunks) {
+		if (chunk && typeof chunk === "object") {
+			// Drizzle Column — has name and table/tableName
+			if (chunk.name && (chunk.table || chunk.tableName)) {
+				columnName = chunk.name;
+			}
+			// Drizzle Param — has a value property but no name
+			if ("value" in chunk && !chunk.name) {
+				value = chunk.value;
+			}
+		}
+	}
+	if (columnName !== null && value !== undefined) {
+		return { column: columnName, value };
+	}
+	return null;
+}
+
 // biome-ignore lint/suspicious/noExplicitAny: cached database client
 let cachedDb: any = null;
 
@@ -275,18 +303,11 @@ export function getDb(): any {
 						},
 						// biome-ignore lint/suspicious/noExplicitAny: custom query builder interface
 						where: (condition: any) => {
-							let targetId: string | null = null;
-							if (condition) {
-								const str = extractConditionString(condition);
-								for (const skill of inMemorySkills) {
-									if (str.includes(skill.id)) {
-										targetId = skill.id;
-										break;
-									}
-								}
-							}
-							if (targetId) {
-								list = list.filter((item) => item.id === targetId);
+							const filter = extractColumnFilter(condition);
+							if (filter) {
+								list = list.filter(
+									(item: any) => String(item[filter.column]) === String(filter.value),
+								);
 							}
 							return chain;
 						},
@@ -310,21 +331,18 @@ export function getDb(): any {
 					return {
 						// biome-ignore lint/suspicious/noExplicitAny: custom query builder interface
 						where: (condition: any) => {
-							let targetId: string | null = null;
-							if (condition) {
-								const str = extractConditionString(condition);
-								for (const skill of inMemorySkills) {
-									if (str.includes(skill.id)) {
-										targetId = skill.id;
-										break;
-									}
-								}
-							}
-							if (targetId && table === schema.skills) {
-								const item = inMemorySkills.find((s) => s.id === targetId);
+							const filter = extractColumnFilter(condition);
+							if (filter && table === schema.skills) {
+								const item = inMemorySkills.find(
+									(s: any) => String(s[filter.column]) === String(filter.value),
+								);
 								if (item) {
-									if (values.upvotes) {
-										item.upvotes += 1;
+									for (const [key, val] of Object.entries(values)) {
+										if (key === "upvotes" && typeof val === "object") {
+											item.upvotes = (item.upvotes || 0) + 1;
+										} else if (typeof val !== "object") {
+											(item as any)[key] = val;
+										}
 									}
 								}
 							}

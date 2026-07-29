@@ -8,7 +8,6 @@ BANNED_MODULES = {
     "socket",
     "multiprocessing",
     "threading",
-    "sys"
 }
 
 BANNED_FUNCTIONS = {

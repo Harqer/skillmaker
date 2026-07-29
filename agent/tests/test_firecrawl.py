@@ -1,7 +1,7 @@
 """Quick smoke-test: hit a live URL with Firecrawl via the shared scraper."""
-from scraper import scrape_with_firecrawl
+from scraper import _scrape_firecrawl_single
 
-result = scrape_with_firecrawl("https://example.com")
+result = _scrape_firecrawl_single("https://example.com")
 if result:
     print(result[:100])
 else:

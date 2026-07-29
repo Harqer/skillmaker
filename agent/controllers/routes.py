@@ -3,8 +3,10 @@ from pydantic import BaseModel
 from typing import Optional, List
 from clerk_backend_api import Clerk
 from svix.webhooks import Webhook, WebhookVerificationError
+from rq import Queue
+from redis import Redis
 
-from config import CLERK_SECRET_KEY, CLERK_WEBHOOK_SECRET
+from config import CLERK_SECRET_KEY, CLERK_WEBHOOK_SECRET, REDIS_URI
 from repositories.unit_of_work import SQLModelUnitOfWork
 from services.wiki_memory_service import DeepWikiMemoryAdapter
 from evaluate_skill import evaluate_skill as execute_skill_eval
@@ -61,7 +63,8 @@ def get_current_user(authorization: str = Header(None)) -> str:
 # --- Payload Schemas ---
 
 class GenerateSkillRequest(BaseModel):
-    url: str
+    urls: List[str] = []
+    url: str = ""
     prompt: str
     include_mcp: bool = False
 
@@ -84,8 +87,11 @@ def generate_skill(
     user_id: str = Depends(get_current_user),
     uow: SQLModelUnitOfWork = Depends(get_uow)
 ):
+    urls = payload.urls if payload.urls else ([payload.url] if payload.url else [])
+    if not urls:
+        raise HTTPException(status_code=400, detail="Provide at least one URL via 'urls' or 'url'")
     command = GenerateSkillCommand(
-        url=payload.url,
+        urls=urls,
         prompt=payload.prompt,
         include_mcp=payload.include_mcp,
         user_id=user_id
@@ -128,10 +134,39 @@ def trigger_skillopt_train_endpoint(
 ):
     try:
         from skillopt_integration import run_skillopt_cycle
-        result = run_skillopt_cycle(db_id=db_id)
-        return result
+        redis_conn = Redis.from_url(REDIS_URI)
+        q = Queue(connection=redis_conn)
+        job = q.enqueue(run_skillopt_cycle, db_id, job_timeout='30m')
+        return {
+            "status": "enqueued",
+            "job_id": job.id,
+            "db_id": db_id,
+        }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SkillOpt training cycle failed: {e}")
+        raise HTTPException(status_code=500, detail=f"SkillOpt training enqueue failed: {e}")
+
+
+@router.get("/api/skillopt/train/status/{job_id}")
+def get_skillopt_train_status_endpoint(
+    job_id: str,
+    user_id: str = Depends(get_current_user)
+):
+    try:
+        redis_conn = Redis.from_url(REDIS_URI)
+        q = Queue(connection=redis_conn)
+        job = q.fetch_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+        return {
+            "job_id": job_id,
+            "status": job.get_status(),
+            "result": job.result if job.is_finished else None,
+            "error": str(job.exc_info) if job.is_failed else None,
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch job status: {e}")
 
 
 @router.get("/api/skillopt/status/{db_id}")

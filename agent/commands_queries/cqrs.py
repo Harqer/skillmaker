@@ -21,7 +21,7 @@ class Query(BaseModel):
 # --- Command Definitions ---
 
 class GenerateSkillCommand(Command):
-    url: str
+    urls: list[str]
     prompt: str
     include_mcp: bool
     user_id: str
@@ -63,12 +63,13 @@ class GenerateSkillHandler:
 
     def handle(self, command: GenerateSkillCommand) -> Dict[str, Any]:
         thread_id = str(uuid.uuid4())
+        primary_url = command.urls[0] if command.urls else ""
         
         with self.uow as uow:
             req = SkillRequest(
                 thread_id=thread_id,
                 user_id=command.user_id,
-                url=command.url,
+                url=primary_url,
                 prompt=command.prompt,
                 include_mcp=command.include_mcp,
                 status="pending"
@@ -77,13 +78,13 @@ class GenerateSkillHandler:
             uow.commit()
             db_id = req.id
 
-        # Queue the job using the RQ worker
+        # Queue the job using the RQ worker — pass all urls
         job = self.q.enqueue(
             process_skill_request, 
             db_id, 
             thread_id, 
             command.user_id, 
-            command.url, 
+            command.urls, 
             command.prompt, 
             command.include_mcp, 
             job_timeout='10m'
@@ -93,7 +94,8 @@ class GenerateSkillHandler:
             "status": "enqueued", 
             "job_id": job.id, 
             "thread_id": thread_id, 
-            "db_id": db_id
+            "db_id": db_id,
+            "urls": command.urls,
         }
 
 

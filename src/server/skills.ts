@@ -4,11 +4,21 @@ import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 import { db, inMemorySkills } from "../lib/db";
 import { skills, users } from "../lib/db/schema";
+import type { Skill } from "../features/skills/types";
+import {
+	evaluateSkill as apiEvaluateSkill,
+	triggerSkillOptTraining as apiTriggerSkillOptTraining,
+	getSkillOptStatus as apiGetSkillOptStatus,
+} from "../lib/api-client";
 
 export const submitSkillSchema = z.object({
 	title: z.string().min(3, "Title must be at least 3 characters"),
-	description: z.string().min(10, "Description must be at least 10 characters"),
-	content: z.string().min(20, "Prompt content must be at least 20 characters"),
+	description: z
+		.string()
+		.min(10, "Description must be at least 10 characters"),
+	content: z
+		.string()
+		.min(20, "Prompt content must be at least 20 characters"),
 	tags: z
 		.array(z.string())
 		.min(1, "Add at least one tag")
@@ -36,9 +46,6 @@ async function requireAuth() {
 // ── Upsert the Clerk user into Neon `users` table ────────────────────────────
 // Clerk is the source of truth; we sync on first action. No passwords stored.
 async function ensureUserExists(userId: string) {
-	// We only have the userId here; full profile data comes via the Clerk webhook
-	// (which syncs email/name on the backend). For the primary DB we
-	// just need the FK to exist — we'll backfill email later via webhook.
 	try {
 		await db
 			.insert(users)
@@ -131,7 +138,9 @@ export const createSkill = createServerFn({ method: "POST" })
 // ── getSkills ─────────────────────────────────────────────────────────────────
 // Public — no auth required. Community library is world-readable.
 export const getSkills = createServerFn({ method: "GET" })
-	.validator((data: { search?: string; tag?: string } | undefined) => data)
+	.validator(
+		(data: { search?: string; tag?: string } | undefined) => data,
+	)
 	.handler(async ({ data }) => {
 		const skillMap = new Map<string, unknown>();
 
@@ -157,13 +166,18 @@ export const getSkills = createServerFn({ method: "GET" })
 							createdAt:
 								typeof item.createdAt === "object" && item.createdAt !== null
 									? (item.createdAt as Date).toISOString()
-									: String(item.createdAt || new Date().toISOString()),
+									: String(
+											item.createdAt || new Date().toISOString(),
+										),
 						});
 					}
 				}
 			}
 		} catch (err) {
-			console.warn("Failed to fetch skills from database, relying on inMemorySkills:", err);
+			console.warn(
+				"Failed to fetch skills from database, relying on inMemorySkills:",
+				err,
+			);
 		}
 
 		let results = Array.from(skillMap.values()) as Skill[];
@@ -211,8 +225,13 @@ export const getSkillById = createServerFn({ method: "GET" })
 
 			return skill;
 		} catch (err) {
-			console.warn("Failed to fetch skill by ID, checking inMemorySkills:", err);
-			const skill = inMemorySkills.find((s: { id?: string }) => s.id === data);
+			console.warn(
+				"Failed to fetch skill by ID, checking inMemorySkills:",
+				err,
+			);
+			const skill = inMemorySkills.find(
+				(s: { id?: string }) => s.id === data,
+			);
 			if (skill) return skill;
 			throw err;
 		}
@@ -235,7 +254,7 @@ export const upvoteSkill = createServerFn({ method: "POST" })
 	});
 
 // ── evaluateSkill ─────────────────────────────────────────────────────────────
-// Real-time AI Skill Evaluation powered by Gemini 3.5 Flash
+// Real-time AI Skill Evaluation powered by FastAPI backend
 export const evaluateSkill = createServerFn({ method: "POST" })
 	.validator(
 		z.object({
@@ -245,219 +264,67 @@ export const evaluateSkill = createServerFn({ method: "POST" })
 		}),
 	)
 	.handler(async ({ data }) => {
-		const { GoogleGenAI } = await import("@google/genai");
-		const ai = new GoogleGenAI({
-			apiKey: process.env.GEMINI_API_KEY,
-			httpOptions: {
-				headers: {
-					"User-Agent": "aistudio-build",
-				},
-			},
-		});
+		const authToken = await requireAuth();
 
-		const systemPrompt = `You are a professional AI model evaluator. You will be given:
-1. A target task prompt
-2. A system prompt/instructions (the "skill") designed to solve that task
-3. A list of key assertions (requirements) that the skill must satisfy
+		const result = await apiEvaluateSkill(
+			data.prompt,
+			data.skill_content,
+			data.assertions,
+			authToken,
+		);
 
-Analyze the skill content. Evaluate its quality, completeness, robustness, and how perfectly it adheres to the prompt and the given assertions.
+		if (result.error) {
+			throw new Error(result.error);
+		}
 
-You must return a valid JSON object matching this schema exactly:
-{
-  "score": <number between 0 and 100 representing the evaluation score>,
-  "feedback": "A concise, objective paragraph of feedback detailing strengths and weaknesses.",
-  "improvements": ["A list of 2-4 concrete, actionable improvements or corrections to make to the skill content."]
-}`;
-
-		const modelPrompt = `Task Prompt: ${data.prompt}
-Skill Content: ${data.skill_content}
-Assertions to Verify:
-${data.assertions.map((a, i) => `${i + 1}. ${a}`).join("\n")}
-
-Perform the evaluation and return the JSON.`;
-
-		const response = await ai.models.generateContent({
-			model: "gemini-3.5-flash",
-			contents: modelPrompt,
-			config: {
-				systemInstruction: systemPrompt,
-				responseMimeType: "application/json",
-			},
-		});
-
-		const resultText = response.text;
-		if (!resultText) throw new Error("No response from evaluation model");
-		return JSON.parse(resultText);
+		return {
+			score: result.score ?? 0,
+			feedback: result.feedback || "Evaluation completed.",
+			improvements: result.improvements || [],
+		};
 	});
-
-// In-memory status cache for SkillOpt optimization jobs
-// biome-ignore lint/suspicious/noExplicitAny: custom store
-const skillOptStore = new Map<string, any>();
 
 // ── triggerSkillOptOptimization ─────────────────────────────────────────────
 export const triggerSkillOptOptimization = createServerFn({ method: "POST" })
 	.validator(z.object({ skillId: z.union([z.string(), z.number()]) }))
 	.handler(async ({ data }) => {
 		const rawId = String(data.skillId);
+		const dbId = Number(rawId);
 
-		// 1. Fetch skill by ID
-		// biome-ignore lint/suspicious/noExplicitAny: custom skill type
-		let skill: any = null;
-		try {
-			const res = await db
-				.select()
-				.from(skills)
-				.where(eq(skills.id, rawId))
-				.limit(1);
-			skill = res[0];
-		} catch (e) {
-			console.warn("DB lookup failed for skillopt trigger, checking inMemory:", e);
-		}
-		if (!skill) {
-			skill = inMemorySkills.find((s) => s.id === rawId || String(s.id) === rawId);
-		}
-		if (!skill && inMemorySkills.length > 0) {
-			skill = inMemorySkills[0];
-		}
-
-		if (!skill) {
+		if (Number.isNaN(dbId)) {
 			return {
 				status: "error",
-				reason: `Skill with ID ${rawId} not found`,
+				reason: `Invalid db_id: ${rawId}. SkillOpt requires a numeric database ID.`,
 				skillId: rawId,
 			};
 		}
 
-		// 2. Mark status as running
-		skillOptStore.set(rawId, {
-			registered: true,
-			status: "running",
-			skill_id: rawId,
-			skill_name: skill.title,
-			training_items_count: 8,
-			has_optimized_output: false,
-			updatedAt: new Date().toISOString(),
-		});
+		const authToken = await requireAuth();
 
-		try {
-			// 3. Perform real Gemini-powered SkillOpt Optimization loop
-			const { GoogleGenAI } = await import("@google/genai");
-			const ai = new GoogleGenAI({
-				apiKey: process.env.GEMINI_API_KEY,
-				httpOptions: {
-					headers: {
-						"User-Agent": "aistudio-build",
-					},
-				},
-			});
+		const result = await apiTriggerSkillOptTraining(dbId, authToken);
 
-			const systemPrompt = `You are SkillOpt v0.2.0 — the autonomous AI Agent Skill & Rule Optimizer.
-Your job is to optimize EVE agent skill rules through gated optimization sleep cycles.
-
-You analyze an input agent skill, simulate benchmark task trajectories, identify missing edge cases, and produce an optimized, production-ready version of the skill.
-
-Input Skill Details:
-Title: ${skill.title}
-Description: ${skill.description}
-Current Content:
-${skill.content}
-
-You MUST perform a deep multi-epoch optimization pass and return a JSON object with this exact schema:
-{
-  "status": "completed",
-  "score_before": <number between 55 and 72 representing baseline benchmark compliance>,
-  "score_after": <number between 90 and 99 representing optimized compliance score>,
-  "adopted_count": <number between 3 and 6 representing new EVE directives adopted>,
-  "staged_count": <number between 3 and 5 representing candidate trajectories evaluated>,
-  "training_items_count": <number between 8 and 18 representing evaluated doc chunks and benchmarks>,
-  "trajectory_insights": [
-    "3-5 bullet points detailing specific rules, boundary checks, or architectural optimizations introduced."
-  ],
-  "optimized_content": "The fully updated, enhanced EVE skill content (or updated JSON bundle if original was JSON)."
-}`;
-
-			const response = await ai.models.generateContent({
-				model: "gemini-3.5-flash",
-				contents: `Execute SkillOpt optimization cycle for "${skill.title}". Mine failure trajectories and return JSON.`,
-				config: {
-					systemInstruction: systemPrompt,
-					responseMimeType: "application/json",
-				},
-			});
-
-			const text = response.text;
-			if (!text) throw new Error("No output received from Gemini model");
-
-			const optResult = JSON.parse(text);
-			const newContent = optResult.optimized_content || skill.content;
-
-			// 4. Persist updated content back to database or fallback memory
-			try {
-				await db
-					.update(skills)
-					.set({ content: newContent })
-					.where(eq(skills.id, skill.id));
-			} catch (err) {
-				console.warn("Failed to persist optimized skill to DB, updating inMemorySkills:", err);
-				const inMem = inMemorySkills.find((s) => s.id === skill.id || s.id === rawId);
-				if (inMem) {
-					inMem.content = newContent;
-				}
-			}
-
-			const finalStatusObj = {
-				registered: true,
-				status: "completed",
-				skill_id: rawId,
-				skill_name: skill.title,
-				training_items_count: optResult.training_items_count || 12,
-				has_optimized_output: true,
-				score_before: optResult.score_before || 65,
-				score_after: optResult.score_after || 96,
-				adopted_count: optResult.adopted_count || 4,
-				staged_count: optResult.staged_count || 3,
-				trajectory_insights: optResult.trajectory_insights || [
-					"Injected lazy initialization guards for serverless database connections",
-					"Enforced max_iterations depth bounds to eliminate recursive subagent loops",
-					"Added structured Zod input schema validation middleware",
-				],
-				optimized_content: newContent,
-				updatedAt: new Date().toISOString(),
-			};
-
-			skillOptStore.set(rawId, finalStatusObj);
-
-			return {
-				status: "completed",
-				skillId: rawId,
-				skill_name: skill.title,
-				score_before: finalStatusObj.score_before,
-				score_after: finalStatusObj.score_after,
-				adopted_count: finalStatusObj.adopted_count,
-				staged_count: finalStatusObj.staged_count,
-				training_items_count: finalStatusObj.training_items_count,
-				trajectory_insights: finalStatusObj.trajectory_insights,
-				optimized_content: newContent,
-			};
-		} catch (err) {
-			console.error("SkillOpt Optimization Gemini pass error:", err);
-			const errorMsg = err instanceof Error ? err.message : String(err);
-			const errorResult = {
-				registered: true,
-				status: "error",
-				skill_id: rawId,
-				skill_name: skill.title,
-				error: errorMsg,
-				updatedAt: new Date().toISOString(),
-			};
-			skillOptStore.set(rawId, errorResult);
+		if (result.error) {
 			return {
 				status: "error",
 				skillId: rawId,
-				skill_name: skill.title,
-				reason: `SkillOpt optimization failed: ${errorMsg}`,
+				reason: `SkillOpt backend error: ${result.error}`,
 			};
 		}
+
+		return {
+			status: result.status,
+			skillId: rawId,
+			skill_name: result.skill_name,
+			score_before: result.score_before,
+			score_after: result.score_after,
+			adopted_count: result.adopted_count,
+			staged_count: result.staged_count,
+			training_items_count: result.training_items_count,
+			trajectory_insights: result.trajectory_insights || [],
+			optimized_content: result.optimized_content,
+			reason: result.reason,
+			error: result.error,
+		};
 	});
 
 // ── getSkillOptStatus ───────────────────────────────────────────────────────
@@ -465,47 +332,69 @@ export const getSkillOptStatus = createServerFn({ method: "GET" })
 	.validator((skillId: string | number) => String(skillId))
 	.handler(async ({ data }) => {
 		const rawId = String(data);
-		const cached = skillOptStore.get(rawId);
-		if (cached) {
-			return cached;
-		}
+		const dbId = Number(rawId);
 
-		// Check if skill exists
-		// biome-ignore lint/suspicious/noExplicitAny: custom skill type
-		let skill: any = null;
-		try {
-			const res = await db
-				.select()
-				.from(skills)
-				.where(eq(skills.id, rawId))
-				.limit(1);
-			skill = res[0];
-		} catch (_e) {
-			// ignore DB error
-		}
-		if (!skill) {
-			skill = inMemorySkills.find((s) => s.id === rawId || String(s.id) === rawId);
-		}
-
-		if (skill) {
+		if (Number.isNaN(dbId)) {
+			// If the ID is not numeric, check if it's an in-memory skill
+			const skill = inMemorySkills.find(
+				(s: { id?: string }) => s.id === rawId || String(s.id) === rawId,
+			);
+			if (skill) {
+				return {
+					registered: false,
+					status: "idle",
+					skill_id: rawId,
+					skill_name: skill.title,
+					training_items_count: 0,
+					has_optimized_output: false,
+				};
+			}
 			return {
-				registered: true,
+				registered: false,
 				status: "idle",
 				skill_id: rawId,
-				skill_name: skill.title,
-				training_items_count: 8,
+				training_items_count: 0,
 				has_optimized_output: false,
+				reason: "Skill not registered for SkillOpt",
+			};
+		}
+
+		const authToken = await requireAuth();
+		const result = await apiGetSkillOptStatus(dbId, authToken);
+
+		if (result.error) {
+			// Backend unavailable, check in-memory skills as fallback
+			const skill = inMemorySkills.find(
+				(s: { id?: string }) => s.id === rawId || String(s.id) === rawId,
+			);
+			if (skill) {
+				return {
+					registered: false,
+					status: "idle",
+					skill_id: rawId,
+					skill_name: skill.title,
+					training_items_count: 0,
+					has_optimized_output: false,
+				};
+			}
+			return {
+				registered: false,
+				status: "idle",
+				skill_id: rawId,
+				training_items_count: 0,
+				has_optimized_output: false,
+				reason: "Backend unavailable",
 			};
 		}
 
 		return {
-			registered: false,
-			status: "idle",
-			skill_id: rawId,
-			training_items_count: 0,
-			has_optimized_output: false,
-			reason: "Skill not registered for SkillOpt",
+			registered: result.registered,
+			skill_id: result.skill_id ?? dbId,
+			skill_name: result.skill_name,
+			training_items_count: result.training_items_count ?? 0,
+			has_optimized_output: result.has_optimized_output ?? false,
+			config_path: result.config_path,
+			data_dir: result.data_dir,
+			reason: result.reason,
 		};
 	});
-
-

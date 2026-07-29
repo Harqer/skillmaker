@@ -50,7 +50,7 @@ class SkillRecord:
     target_url: str
     skill_content: str       # full SKILL.md markdown
     mcp_script: str | None
-    mcp_config: dict | None
+    mcp_config: str | None
     langsmith_trace_url: str | None
     thread_id: str
     user_id: str
@@ -59,7 +59,8 @@ class SkillRecord:
 
     def to_row(self) -> dict[str, Any]:
         d = asdict(self)
-        d["mcp_config"] = json.dumps(d["mcp_config"]) if d["mcp_config"] else None
+        mcp = d["mcp_config"]
+        d["mcp_config"] = json.dumps(mcp) if isinstance(mcp, dict) else (mcp if mcp else None)
         d["tags"] = json.dumps(d["tags"])
         return d
 
@@ -248,7 +249,7 @@ class DatabricksStore:
             WHEN NOT MATCHED THEN INSERT *
             """,
             params=[
-                {"name": k, "value": str(v) if v is not None else ""}
+                {"name": k, "value": None if v is None else str(v)}
                 for k, v in row.items()
             ],
         )
@@ -267,7 +268,7 @@ class DatabricksStore:
             )
             """,
             params=[
-                {"name": k, "value": str(v) if v is not None else ""}
+                {"name": k, "value": None if v is None else str(v)}
                 for k, v in row.items()
             ],
         )
@@ -304,7 +305,8 @@ class DatabricksStore:
         limit: int = 100,
     ) -> list[dict[str, Any]]:
         """Return skills from the Delta table, optionally filtered by user."""
-        where = f"WHERE user_id = '{user_id}'" if user_id else ""
+        where = "WHERE user_id = :user_id" if user_id else ""
+        params = [{"name": "user_id", "value": user_id}] if user_id else None
         resp = self._sql(
             f"""
             SELECT skill_id, folder_name, target_url, langsmith_trace_url,
@@ -313,7 +315,8 @@ class DatabricksStore:
             {where}
             ORDER BY created_at DESC
             LIMIT {limit}
-            """
+            """,
+            params=params,
         )
         rows = []
         if resp.result and resp.result.data_array:
@@ -345,7 +348,8 @@ class DatabricksStore:
         Return evaluation records from the evaluations Delta table.
         Used by skillopt_integration to build real training items.
         """
-        where = f"WHERE skill_id = '{skill_id}'" if skill_id else ""
+        where = "WHERE skill_id = :skill_id" if skill_id else ""
+        params = [{"name": "skill_id", "value": skill_id}] if skill_id else None
         resp = self._sql(
             f"""
             SELECT eval_id, skill_id, prompt, guided_score, guided_output,
@@ -354,7 +358,8 @@ class DatabricksStore:
             {where}
             ORDER BY created_at DESC
             LIMIT {limit}
-            """
+            """,
+            params=params,
         )
         rows = []
         if resp.result and resp.result.data_array:
@@ -385,20 +390,30 @@ class DatabricksStore:
                 cols = [c.name for c in res.manifest.columns] if res.manifest else ["skill_id", "folder_name", "target_url", "skill_content"]
                 return [dict(zip(cols, row)) for row in data_array]
         except Exception as exc:
-            print(f"[databricks] Vector search fallback to Delta SQL: {exc}")
+            err_msg = str(exc).lower()
+            if "not found" in err_msg or "does not exist" in err_msg:
+                print(
+                    f"[databricks] Vector Search index '{index_name}' not found. "
+                    f"Create it in the Databricks UI: Catalog Explorer → "
+                    f"{self.CATALOG}.{self.SCHEMA} → Create → Vector Search Index. "
+                    f"Falling back to Delta SQL text search."
+                )
+            else:
+                print(f"[databricks] Vector search fallback to Delta SQL: {exc}")
 
         # Fallback: Delta SQL text query on skills table
         try:
-            clean_q = query_text.replace("'", "''")
+            like_pattern = f"%{query_text}%"
             resp = self._sql(
                 f"""
                 SELECT skill_id, folder_name, target_url, skill_content
                 FROM {self.CATALOG}.{self.SCHEMA}.skills
-                WHERE lower(skill_content) LIKE lower('%{clean_q}%')
-                   OR lower(folder_name) LIKE lower('%{clean_q}%')
+                WHERE lower(skill_content) LIKE lower(:like_pattern)
+                   OR lower(folder_name) LIKE lower(:like_pattern)
                 ORDER BY created_at DESC
                 LIMIT {k}
-                """
+                """,
+                params=[{"name": "like_pattern", "value": like_pattern}],
             )
             rows = []
             if resp.result and resp.result.data_array:

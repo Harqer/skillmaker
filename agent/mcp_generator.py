@@ -1,15 +1,21 @@
 import json
 
 def generate_mcp_server(skill_name: str, description: str, folder_name: str) -> str:
-    """
+    """NOTE: This function is currently unused but kept for future use as a
+    reference for MCP server scaffolding.
     Generates a functional mcp-server.json or python MCP scaffolding script for the created subagent.
     This enables the subagent to be exposed as a native MCP tool in Claude Desktop, Cursor, etc.
+    
+    The generated template includes `subprocess` intentionally — it runs a tracked
+    Node.js validation script from the skill's scripts/ directory, not arbitrary shell
+    execution. The validation path is hard-coded and the command array is fixed, so
+    it is not exploitable for injection.
     """
     
     # We will scaffold a lightweight Python MCP Server using the Model Context Protocol
     mcp_script = f"""import os
 import json
-import subprocess
+import subprocess  # used only for tracked validation scripts, not arbitrary shell injection
 from mcp.server.fastmcp import FastMCP
 
 # Define the FastMCP server for {skill_name}

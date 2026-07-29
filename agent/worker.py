@@ -10,11 +10,16 @@ from db import engine
 from db_models import SkillRequest
 from orchestrator import run_orchestrator as run_agent
 
-def process_skill_request(db_id: int, thread_id: str, user_id: str, url: str, prompt: str, include_mcp: bool):
+def process_skill_request(db_id: int, thread_id: str, user_id: str, urls: str | list[str], prompt: str, include_mcp: bool):
     """
     RQ worker function.
-    Executes the LangGraph orchestrator and saves the results to NeonDB.
+    Accepts one or more URLs, bulk-scrapes all of them, stores every markdown
+    in Databricks vector embeddings, then runs the LangGraph orchestrator
+    on the first URL for LLM skill generation.
     """
+    if isinstance(urls, str):
+        urls = [urls]
+
     try:
         # Mark as processing
         with Session(engine) as session:
@@ -26,12 +31,8 @@ def process_skill_request(db_id: int, thread_id: str, user_id: str, url: str, pr
             session.add(req)
             session.commit()
 
-        # Run the LangGraph orchestrator, passing db_id so ingest_skill can
-        # tag the Redis vector chunks with the correct skill identifier.
-        result = run_agent(url, prompt, include_mcp=include_mcp, thread_id=thread_id, user_id=user_id, db_id=db_id)
-        
-        # result is a dictionary returned by run_agent containing:
-        # "skill_content", "mcp_script", "mcp_config", "trace_url"
+        # Run the LangGraph orchestrator with ALL urls for bulk scrape.
+        result = run_agent(urls, prompt, include_mcp=include_mcp, thread_id=thread_id, user_id=user_id, db_id=db_id)
         
         # Mark as completed
         with Session(engine) as session:
@@ -44,7 +45,7 @@ def process_skill_request(db_id: int, thread_id: str, user_id: str, url: str, pr
                 req.trace_url = result.get("trace_url")
                 session.add(req)
                 session.commit()
-                print(f"Successfully processed request {db_id}")
+                print(f"Successfully processed request {db_id} ({len(urls)} URLs scraped)")
                 
                 # Register skill in SkillOpt for evaluation and refinement.
                 # Pass the scraped markdown so SkillOpt can build real training
@@ -54,7 +55,7 @@ def process_skill_request(db_id: int, thread_id: str, user_id: str, url: str, pr
                     db_id=db_id,
                     skill_content=req.skill_content,
                     prompt=prompt,
-                    target_url=url,
+                    target_url=urls[0],
                     scraped_markdown=result.get("scraped_text", ""),
                 )
 
