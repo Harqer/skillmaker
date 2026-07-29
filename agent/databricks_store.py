@@ -17,23 +17,25 @@ Architecture:
   DLT pipeline:
     skill_ingestion     — incrementally ingests skills table into a refined layer
 """
+
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, asdict
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
 from config import DATABRICKS_HOST, DATABRICKS_TOKEN
 
-
 # ── Lazy SDK import ────────────────────────────────────────────────────────────
 # databricks-sdk is optional — the rest of the agent runs without Databricks.
+
 
 def _sdk():
     """Return databricks.sdk.WorkspaceClient, importing lazily."""
     try:
         from databricks.sdk import WorkspaceClient
+
         return WorkspaceClient
     except ImportError as exc:
         raise ImportError(
@@ -43,24 +45,29 @@ def _sdk():
 
 # ── Data models ────────────────────────────────────────────────────────────────
 
+
 @dataclass
 class SkillRecord:
-    skill_id: str            # UUID from orchestrator run
-    folder_name: str         # e.g. "stripe-api"
+    skill_id: str  # UUID from orchestrator run
+    folder_name: str  # e.g. "stripe-api"
     target_url: str
-    skill_content: str       # full SKILL.md markdown
+    skill_content: str  # full SKILL.md markdown
     mcp_script: str | None
     mcp_config: str | None
     langsmith_trace_url: str | None
     thread_id: str
     user_id: str
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
     tags: list[str] = field(default_factory=list)
 
     def to_row(self) -> dict[str, Any]:
         d = asdict(self)
         mcp = d["mcp_config"]
-        d["mcp_config"] = json.dumps(mcp) if isinstance(mcp, dict) else (mcp if mcp else None)
+        d["mcp_config"] = (
+            json.dumps(mcp) if isinstance(mcp, dict) else (mcp if mcp else None)
+        )
         d["tags"] = json.dumps(d["tags"])
         return d
 
@@ -76,7 +83,9 @@ class EvaluationRecord:
     guided_output: str
     grades: list[dict]
     langsmith_experiment_prefix: str
-    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    created_at: str = field(
+        default_factory=lambda: datetime.now(timezone.utc).isoformat()
+    )
 
     def to_row(self) -> dict[str, Any]:
         d = asdict(self)
@@ -85,6 +94,7 @@ class EvaluationRecord:
 
 
 # ── Client wrapper ────────────────────────────────────────────────────────────
+
 
 class DatabricksStore:
     """
@@ -99,7 +109,7 @@ class DatabricksStore:
     """
 
     CATALOG = "skill_maker"
-    SCHEMA  = "skills"
+    SCHEMA = "skills"
     WAREHOUSE_NAME = "skill_maker_warehouse"
 
     # Short connection timeout so we fail fast in environments without outbound
@@ -109,7 +119,7 @@ class DatabricksStore:
 
     def __init__(self) -> None:
         if not DATABRICKS_HOST or not DATABRICKS_TOKEN:
-            raise EnvironmentError(
+            raise OSError(
                 "DATABRICKS_HOST and DATABRICKS_TOKEN must be set in Infisical. "
                 "They were not found in the current environment."
             )
@@ -153,6 +163,7 @@ class DatabricksStore:
     def _sql(self, statement: str, params: list | None = None) -> Any:
         """Execute a SQL statement via the Statement Execution API."""
         from databricks.sdk.service.sql import StatementState
+
         resp = self._w.statement_execution.execute_statement(
             warehouse_id=self._get_warehouse_id(),
             statement=statement,
@@ -160,9 +171,7 @@ class DatabricksStore:
             wait_timeout="30s",
         )
         if resp.status and resp.status.state == StatementState.FAILED:
-            raise RuntimeError(
-                f"Databricks SQL failed: {resp.status.error.message}"
-            )
+            raise RuntimeError(f"Databricks SQL failed: {resp.status.error.message}")
         return resp
 
     # ── Schema bootstrap ───────────────────────────────────────────────────────
@@ -289,10 +298,10 @@ class DatabricksStore:
             VALUES (:run_id, :thread_id, :user_id, :trace_url, :target_url, current_timestamp())
             """,
             params=[
-                {"name": "run_id",     "value": run_id},
-                {"name": "thread_id",  "value": thread_id},
-                {"name": "user_id",    "value": user_id},
-                {"name": "trace_url",  "value": trace_url or ""},
+                {"name": "run_id", "value": run_id},
+                {"name": "thread_id", "value": thread_id},
+                {"name": "user_id", "value": user_id},
+                {"name": "trace_url", "value": trace_url or ""},
                 {"name": "target_url", "value": target_url},
             ],
         )
@@ -387,7 +396,11 @@ class DatabricksStore:
             )
             if res and hasattr(res, "result") and res.result:
                 data_array = res.result.data_array or []
-                cols = [c.name for c in res.manifest.columns] if res.manifest else ["skill_id", "folder_name", "target_url", "skill_content"]
+                cols = (
+                    [c.name for c in res.manifest.columns]
+                    if res.manifest
+                    else ["skill_id", "folder_name", "target_url", "skill_content"]
+                )
                 return [dict(zip(cols, row)) for row in data_array]
         except Exception as exc:
             err_msg = str(exc).lower()
@@ -438,17 +451,24 @@ class DatabricksStore:
         """Trigger a full refresh of the DLT ingestion pipeline."""
         pipeline_id = self.get_pipeline_id(pipeline_name)
         if not pipeline_id:
-            print(f"[databricks] Pipeline '{pipeline_name}' not found — skipping trigger.")
+            print(
+                f"[databricks] Pipeline '{pipeline_name}' not found — skipping trigger."
+            )
             return None
-        update = self._w.pipelines.start_update(pipeline_id=pipeline_id, full_refresh=False)
-        print(f"[databricks] Pipeline '{pipeline_name}' triggered: update_id={update.update_id}")
+        update = self._w.pipelines.start_update(
+            pipeline_id=pipeline_id, full_refresh=False
+        )
+        print(
+            f"[databricks] Pipeline '{pipeline_name}' triggered: update_id={update.update_id}"
+        )
         return update.update_id
 
 
 # ── Physical Local Lakehouse Store ─────────────────────────────────────────────
 
-import sqlite3
 import os
+import sqlite3
+
 
 class LocalLakehouseStore:
     """
@@ -456,6 +476,7 @@ class LocalLakehouseStore:
     Uses SQLite database at agent/data/lakehouse.sqlite to guarantee physical disk persistence
     for all skill records, evaluation outputs, and agent traces.
     """
+
     def __init__(self, db_path: str | None = None) -> None:
         if db_path is None:
             base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -517,7 +538,8 @@ class LocalLakehouseStore:
     def write_skill(self, record: SkillRecord) -> None:
         row = record.to_row()
         with self._get_conn() as conn:
-            conn.execute("""
+            conn.execute(
+                """
             INSERT OR REPLACE INTO skills (
                 skill_id, folder_name, target_url, skill_content, mcp_script, mcp_config,
                 langsmith_trace_url, thread_id, user_id, created_at, tags
@@ -525,14 +547,19 @@ class LocalLakehouseStore:
                 :skill_id, :folder_name, :target_url, :skill_content, :mcp_script, :mcp_config,
                 :langsmith_trace_url, :thread_id, :user_id, :created_at, :tags
             )
-            """, row)
+            """,
+                row,
+            )
             conn.commit()
-        print(f"[lakehouse] Skill physically written to SQLite Lakehouse: {record.skill_id} ({record.folder_name})")
+        print(
+            f"[lakehouse] Skill physically written to SQLite Lakehouse: {record.skill_id} ({record.folder_name})"
+        )
 
     def write_evaluation(self, record: EvaluationRecord) -> None:
         row = record.to_row()
         with self._get_conn() as conn:
-            conn.execute("""
+            conn.execute(
+                """
             INSERT OR REPLACE INTO evaluations (
                 eval_id, skill_id, prompt, baseline_score, guided_score,
                 baseline_output, guided_output, grades, langsmith_experiment_prefix, created_at
@@ -540,52 +567,88 @@ class LocalLakehouseStore:
                 :eval_id, :skill_id, :prompt, :baseline_score, :guided_score,
                 :baseline_output, :guided_output, :grades, :langsmith_experiment_prefix, :created_at
             )
-            """, row)
+            """,
+                row,
+            )
             conn.commit()
-        print(f"[lakehouse] Evaluation physically written to SQLite Lakehouse: {record.eval_id}")
+        print(
+            f"[lakehouse] Evaluation physically written to SQLite Lakehouse: {record.eval_id}"
+        )
 
-    def write_trace(self, run_id: str, thread_id: str, user_id: str, trace_url: str | None, target_url: str) -> None:
+    def write_trace(
+        self,
+        run_id: str,
+        thread_id: str,
+        user_id: str,
+        trace_url: str | None,
+        target_url: str,
+    ) -> None:
         now_iso = datetime.now(timezone.utc).isoformat()
         with self._get_conn() as conn:
-            conn.execute("""
+            conn.execute(
+                """
             INSERT OR REPLACE INTO agent_traces (
                 run_id, thread_id, user_id, trace_url, target_url, created_at
             ) VALUES (?, ?, ?, ?, ?, ?)
-            """, (run_id, thread_id, user_id, trace_url or "", target_url, now_iso))
+            """,
+                (run_id, thread_id, user_id, trace_url or "", target_url, now_iso),
+            )
             conn.commit()
 
-    def list_skills(self, user_id: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
+    def list_skills(
+        self, user_id: str | None = None, limit: int = 100
+    ) -> list[dict[str, Any]]:
         with self._get_conn() as conn:
             if user_id:
-                cur = conn.execute("SELECT * FROM skills WHERE user_id = ? ORDER BY created_at DESC LIMIT ?", (user_id, limit))
+                cur = conn.execute(
+                    "SELECT * FROM skills WHERE user_id = ? ORDER BY created_at DESC LIMIT ?",
+                    (user_id, limit),
+                )
             else:
-                cur = conn.execute("SELECT * FROM skills ORDER BY created_at DESC LIMIT ?", (limit,))
+                cur = conn.execute(
+                    "SELECT * FROM skills ORDER BY created_at DESC LIMIT ?", (limit,)
+                )
             return [dict(r) for r in cur.fetchall()]
 
     def get_skill(self, skill_id: str) -> dict[str, Any] | None:
         with self._get_conn() as conn:
-            cur = conn.execute("SELECT * FROM skills WHERE skill_id = ? LIMIT 1", (skill_id,))
+            cur = conn.execute(
+                "SELECT * FROM skills WHERE skill_id = ? LIMIT 1", (skill_id,)
+            )
             r = cur.fetchone()
             return dict(r) if r else None
 
-    def list_evaluations(self, skill_id: str | None = None, limit: int = 50) -> list[dict[str, Any]]:
+    def list_evaluations(
+        self, skill_id: str | None = None, limit: int = 50
+    ) -> list[dict[str, Any]]:
         with self._get_conn() as conn:
             if skill_id:
-                cur = conn.execute("SELECT * FROM evaluations WHERE skill_id = ? ORDER BY created_at DESC LIMIT ?", (skill_id, limit))
+                cur = conn.execute(
+                    "SELECT * FROM evaluations WHERE skill_id = ? ORDER BY created_at DESC LIMIT ?",
+                    (skill_id, limit),
+                )
             else:
-                cur = conn.execute("SELECT * FROM evaluations ORDER BY created_at DESC LIMIT ?", (limit,))
+                cur = conn.execute(
+                    "SELECT * FROM evaluations ORDER BY created_at DESC LIMIT ?",
+                    (limit,),
+                )
             return [dict(r) for r in cur.fetchall()]
 
-    def search_ai_index(self, query_text: str, index_name: str = "skills_vs_index", k: int = 5) -> list[dict[str, Any]]:
+    def search_ai_index(
+        self, query_text: str, index_name: str = "skills_vs_index", k: int = 5
+    ) -> list[dict[str, Any]]:
         clean_q = f"%{query_text.strip().lower()}%"
         with self._get_conn() as conn:
-            cur = conn.execute("""
+            cur = conn.execute(
+                """
             SELECT skill_id, folder_name, target_url, skill_content
             FROM skills
             WHERE lower(skill_content) LIKE ? OR lower(folder_name) LIKE ?
             ORDER BY created_at DESC
             LIMIT ?
-            """, (clean_q, clean_q, k))
+            """,
+                (clean_q, clean_q, k),
+            )
             return [dict(r) for r in cur.fetchall()]
 
     def get_pipeline_id(self, pipeline_name: str = "skill_ingestion") -> str | None:
@@ -593,6 +656,7 @@ class LocalLakehouseStore:
 
     def trigger_pipeline(self, pipeline_name: str = "skill_ingestion") -> str | None:
         import uuid
+
         return f"local_update_{uuid.uuid4().hex[:8]}"
 
 
@@ -612,6 +676,8 @@ def get_store() -> DatabricksStore | LocalLakehouseStore:
             _store = DatabricksStore()
             print("[lakehouse] Connected to Databricks Workspace Store.")
         except Exception as exc:
-            print(f"[lakehouse] Remote Databricks unavailable ({exc}) — initializing physical LocalLakehouseStore.")
+            print(
+                f"[lakehouse] Remote Databricks unavailable ({exc}) — initializing physical LocalLakehouseStore."
+            )
             _store = LocalLakehouseStore()
     return _store

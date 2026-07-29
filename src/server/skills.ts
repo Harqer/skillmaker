@@ -2,23 +2,19 @@ import { auth } from "@clerk/tanstack-react-start/server";
 import { createServerFn } from "@tanstack/react-start";
 import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
-import { db, inMemorySkills } from "../lib/db";
-import { skills, users } from "../lib/db/schema";
 import type { Skill } from "../features/skills/types";
 import {
 	evaluateSkill as apiEvaluateSkill,
-	triggerSkillOptTraining as apiTriggerSkillOptTraining,
 	getSkillOptStatus as apiGetSkillOptStatus,
+	triggerSkillOptTraining as apiTriggerSkillOptTraining,
 } from "../lib/api-client";
+import { db, inMemorySkills } from "../lib/db";
+import { skills, users } from "../lib/db/schema";
 
 export const submitSkillSchema = z.object({
 	title: z.string().min(3, "Title must be at least 3 characters"),
-	description: z
-		.string()
-		.min(10, "Description must be at least 10 characters"),
-	content: z
-		.string()
-		.min(20, "Prompt content must be at least 20 characters"),
+	description: z.string().min(10, "Description must be at least 10 characters"),
+	content: z.string().min(20, "Prompt content must be at least 20 characters"),
 	tags: z
 		.array(z.string())
 		.min(1, "Add at least one tag")
@@ -138,9 +134,7 @@ export const createSkill = createServerFn({ method: "POST" })
 // ── getSkills ─────────────────────────────────────────────────────────────────
 // Public — no auth required. Community library is world-readable.
 export const getSkills = createServerFn({ method: "GET" })
-	.validator(
-		(data: { search?: string; tag?: string } | undefined) => data,
-	)
+	.validator((data: { search?: string; tag?: string } | undefined) => data)
 	.handler(async ({ data }) => {
 		const skillMap = new Map<string, unknown>();
 
@@ -166,9 +160,7 @@ export const getSkills = createServerFn({ method: "GET" })
 							createdAt:
 								typeof item.createdAt === "object" && item.createdAt !== null
 									? (item.createdAt as Date).toISOString()
-									: String(
-											item.createdAt || new Date().toISOString(),
-										),
+									: String(item.createdAt || new Date().toISOString()),
 						});
 					}
 				}
@@ -198,8 +190,8 @@ export const getSkills = createServerFn({ method: "GET" })
 		}
 		if (data?.tag) {
 			const targetTag = data.tag;
-			results = results.filter(
-				(s: { tags?: string[] }) => s.tags?.includes(targetTag),
+			results = results.filter((s: { tags?: string[] }) =>
+				s.tags?.includes(targetTag),
 			);
 		}
 
@@ -219,8 +211,7 @@ export const getSkillById = createServerFn({ method: "GET" })
 				.limit(1);
 
 			const skill =
-				result[0] ||
-				inMemorySkills.find((s: { id?: string }) => s.id === data);
+				result[0] || inMemorySkills.find((s: { id?: string }) => s.id === data);
 			if (!skill) throw new Error("Skill not found");
 
 			return skill;
@@ -229,9 +220,7 @@ export const getSkillById = createServerFn({ method: "GET" })
 				"Failed to fetch skill by ID, checking inMemorySkills:",
 				err,
 			);
-			const skill = inMemorySkills.find(
-				(s: { id?: string }) => s.id === data,
-			);
+			const skill = inMemorySkills.find((s: { id?: string }) => s.id === data);
 			if (skill) return skill;
 			throw err;
 		}

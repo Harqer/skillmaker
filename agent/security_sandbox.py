@@ -17,8 +17,9 @@ BANNED_FUNCTIONS = {
     "os.exec",
     "eval",
     "exec",
-    "__import__"
+    "__import__",
 }
+
 
 def sanitize_mcp_script(script_content: str) -> str:
     """
@@ -27,25 +28,28 @@ def sanitize_mcp_script(script_content: str) -> str:
     """
     if not script_content:
         return script_content
-        
+
     try:
         tree = ast.parse(script_content)
     except SyntaxError:
         # If it doesn't parse, it's either incomplete or malformed.
         # It's safer to flag it.
-        return "# [SECURITY WARNING] Generated script contained syntax errors and could not be validated.\n" + script_content
+        return (
+            "# [SECURITY WARNING] Generated script contained syntax errors and could not be validated.\n"
+            + script_content
+        )
 
     violations = []
-    
+
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
             for alias in node.names:
-                base_module = alias.name.split('.')[0]
+                base_module = alias.name.split(".")[0]
                 if base_module in BANNED_MODULES:
                     violations.append(f"Banned import: {alias.name}")
         elif isinstance(node, ast.ImportFrom):
             if node.module:
-                base_module = node.module.split('.')[0]
+                base_module = node.module.split(".")[0]
                 if base_module in BANNED_MODULES:
                     violations.append(f"Banned import from: {node.module}")
         elif isinstance(node, ast.Call):
@@ -63,12 +67,15 @@ def sanitize_mcp_script(script_content: str) -> str:
         warning_header += "The following violations were detected:\n"
         for v in violations:
             warning_header += f"- {v}\n"
-        warning_header += "For your safety, the script has been commented out.\n\"\"\"\n\n"
-        
-        commented_script = "\n".join(f"# {line}" for line in script_content.splitlines())
+        warning_header += 'For your safety, the script has been commented out.\n"""\n\n'
+
+        commented_script = "\n".join(
+            f"# {line}" for line in script_content.splitlines()
+        )
         return warning_header + commented_script
 
     return script_content
+
 
 def sanitize_skill_content(skill_content: str) -> str:
     """
@@ -76,24 +83,26 @@ def sanitize_skill_content(skill_content: str) -> str:
     """
     if not skill_content:
         return skill_content
-        
+
     dangerous_patterns = [
-        r'(?i)(curl|wget).*?\|\s*(bash|sh|zsh)',
-        r'(?i)rm\s+-rf\s+(/|\~|\$HOME)',
-        r'(?i)>\s*/dev/sd[a-z]',
-        r'(?i)mkfs\.'
+        r"(?i)(curl|wget).*?\|\s*(bash|sh|zsh)",
+        r"(?i)rm\s+-rf\s+(/|\~|\$HOME)",
+        r"(?i)>\s*/dev/sd[a-z]",
+        r"(?i)mkfs\.",
     ]
-    
+
     violations_found = False
     sanitized_content = skill_content
-    
+
     for pattern in dangerous_patterns:
         if re.search(pattern, sanitized_content):
             violations_found = True
-            sanitized_content = re.sub(pattern, "[REDACTED MALICIOUS COMMAND]", sanitized_content)
-            
+            sanitized_content = re.sub(
+                pattern, "[REDACTED MALICIOUS COMMAND]", sanitized_content
+            )
+
     if violations_found:
         warning = "> [!CAUTION]\n> **SECURITY WARNING:** The AI generated potentially malicious shell commands (e.g., piped curl to bash or dangerous rm commands). These have been redacted for your safety.\n\n"
         sanitized_content = warning + sanitized_content
-        
+
     return sanitized_content

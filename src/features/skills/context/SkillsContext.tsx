@@ -23,10 +23,7 @@ interface SkillsContextType {
 		prompt: string,
 		includeMcp: boolean,
 	) => Promise<void>;
-	compileBatchSkills: (
-		urls: string[],
-		includeMcp: boolean,
-	) => Promise<void>;
+	compileBatchSkills: (urls: string[], includeMcp: boolean) => Promise<void>;
 	seedBlueprint: (blueprint: Blueprint) => Promise<string | undefined>;
 	clearError: () => void;
 	resetCompilation: () => void;
@@ -140,7 +137,7 @@ export function SkillsProvider({ children }: { children: ReactNode }) {
 			try {
 				const res = await pollStatusFn({ data: pollingId });
 				if (isCancelled) return;
-				
+
 				dispatch({
 					type: "UPDATE_POLLING_STATUS",
 					payload: {
@@ -233,4 +230,3 @@ export function useSkillsContext() {
 	}
 	return context;
 }
-

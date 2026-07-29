@@ -24,7 +24,6 @@ import os
 import sys
 import textwrap
 import uuid
-from typing import Optional
 
 import config  # noqa — runs Infisical SDK bootstrap
 from config import SKILLOPT_ROOT as _SKILLOPT_ROOT_CFG
@@ -35,20 +34,21 @@ SKILLOPT_ROOT = _SKILLOPT_ROOT_CFG
 if not SKILLOPT_ROOT:
     try:
         import skillopt
+
         SKILLOPT_ROOT = os.path.dirname(os.path.dirname(skillopt.__file__))
     except ImportError:
         SKILLOPT_ROOT = ""
 
 _AGENTS_SKILLS_DIR = os.path.join(
-    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    ".agents", "skills"
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".agents", "skills"
 )
 
-_MAX_SCRAPED_CHARS = 40_000   # cap to avoid token overflow in training items
-_SKILL_CARD_ENV    = "skill_card"
+_MAX_SCRAPED_CHARS = 40_000  # cap to avoid token overflow in training items
+_SKILL_CARD_ENV = "skill_card"
 
 
 # ── Item builders ─────────────────────────────────────────────────────────────
+
 
 def _build_items_from_scraped_docs(
     prompt: str,
@@ -85,13 +85,15 @@ def _build_items_from_scraped_docs(
 
     items = []
     for section in sections:
-        items.append({
-            "id": str(uuid.uuid4()),
-            "question": prompt,
-            "context": section[:4000],
-            "answers": [section[:4000]],  # gold = the doc section itself
-            "source_url": target_url,
-        })
+        items.append(
+            {
+                "id": str(uuid.uuid4()),
+                "question": prompt,
+                "context": section[:4000],
+                "answers": [section[:4000]],  # gold = the doc section itself
+                "source_url": target_url,
+            }
+        )
     return items
 
 
@@ -102,17 +104,20 @@ def _build_items_from_databricks(skill_id: int, limit: int = 20) -> list[dict]:
     """
     try:
         from databricks_store import get_store as get_databricks_store
+
         store = get_databricks_store()
         rows = store.list_evaluations(skill_id=str(skill_id), limit=limit)
         items = []
         for row in rows:
-            items.append({
-                "id": str(uuid.uuid4()),
-                "question":  row.get("prompt", ""),
-                "context":   row.get("guided_output", "")[:4000],
-                "answers":   [row.get("guided_output", "")[:4000]],
-                "source_url": row.get("target_url", ""),
-            })
+            items.append(
+                {
+                    "id": str(uuid.uuid4()),
+                    "question": row.get("prompt", ""),
+                    "context": row.get("guided_output", "")[:4000],
+                    "answers": [row.get("guided_output", "")[:4000]],
+                    "source_url": row.get("target_url", ""),
+                }
+            )
         return items
     except Exception as exc:
         print(f"[skillopt] Databricks items unavailable (non-fatal): {exc}")
@@ -120,6 +125,7 @@ def _build_items_from_databricks(skill_id: int, limit: int = 20) -> list[dict]:
 
 
 # ── Main registration function ────────────────────────────────────────────────
+
 
 def register_skill_for_skillopt(
     db_id: int,
@@ -150,7 +156,9 @@ def register_skill_for_skillopt(
     print(f"[skillopt] Registering {skill_name} (url={target_url or 'N/A'})")
 
     # ── 1. Write initial skill document ──────────────────────────────────────
-    skill_dir = os.path.join(SKILLOPT_ROOT, "skillopt", "envs", _SKILL_CARD_ENV, "skills", skill_name)
+    skill_dir = os.path.join(
+        SKILLOPT_ROOT, "skillopt", "envs", _SKILL_CARD_ENV, "skills", skill_name
+    )
     os.makedirs(skill_dir, exist_ok=True)
 
     initial_md_path = os.path.join(skill_dir, "initial.md")
@@ -159,19 +167,21 @@ def register_skill_for_skillopt(
 
     # ── 2. Build training items from scraped docs + Databricks history ────────
     scraped_items = _build_items_from_scraped_docs(prompt, target_url, scraped_markdown)
-    db_items      = _build_items_from_databricks(db_id, limit=20)
+    db_items = _build_items_from_databricks(db_id, limit=20)
 
     # Merge: Databricks items take priority (real evals), docs fill the rest
     all_items = db_items + scraped_items
     if not all_items:
         # Minimal fallback so SkillOpt doesn't error on empty split
-        all_items = [{
-            "id": str(uuid.uuid4()),
-            "question": prompt,
-            "context":  skill_content[:2000],
-            "answers":  [skill_content[:2000]],
-            "source_url": target_url,
-        }]
+        all_items = [
+            {
+                "id": str(uuid.uuid4()),
+                "question": prompt,
+                "context": skill_content[:2000],
+                "answers": [skill_content[:2000]],
+                "source_url": target_url,
+            }
+        ]
 
     # Train/val/test split: proportional with n_val + n_test + n_train == n
     n = len(all_items)
@@ -180,7 +190,7 @@ def register_skill_for_skillopt(
         val_items = []
         test_items = []
     else:
-        n_val  = max(1, round(n * 0.20))
+        n_val = max(1, round(n * 0.20))
         n_test = max(1, round(n * 0.20))
         remaining = n - n_val - n_test
         n_train = max(1, remaining)
@@ -192,21 +202,23 @@ def register_skill_for_skillopt(
         n_train = n - n_val - n_test
 
         train_items = all_items[:n_train]
-        val_items   = all_items[n_train:n_train + n_val]
-        test_items  = all_items[n_train + n_val:]
+        val_items = all_items[n_train : n_train + n_val]
+        test_items = all_items[n_train + n_val :]
 
     data_dir = os.path.join(SKILLOPT_ROOT, "data", f"{skill_name}_split")
     for split_name, split_items in [
         ("train", train_items),
-        ("val",   val_items),
-        ("test",  test_items),
+        ("val", val_items),
+        ("test", test_items),
     ]:
         split_dir = os.path.join(data_dir, split_name)
         os.makedirs(split_dir, exist_ok=True)
         with open(os.path.join(split_dir, "items.json"), "w") as f:
             json.dump(split_items, f, indent=2)
 
-    print(f"[skillopt] Data split: train={len(train_items)} val={len(val_items)} test={len(test_items)}")
+    print(
+        f"[skillopt] Data split: train={len(train_items)} val={len(val_items)} test={len(test_items)}"
+    )
 
     # ── 3. Write Gemini-compatible SkillOpt YAML config ───────────────────────
     config_dir = os.path.join(SKILLOPT_ROOT, "configs", skill_name)
@@ -272,13 +284,16 @@ def register_skill_for_skillopt(
     with open(config_path, "w") as f:
         f.write(config_yaml)
 
-    print(f"[skillopt] Environment registered for {skill_name} "
-          f"({len(all_items)} training items, env={_SKILL_CARD_ENV})")
+    print(
+        f"[skillopt] Environment registered for {skill_name} "
+        f"({len(all_items)} training items, env={_SKILL_CARD_ENV})"
+    )
 
 
 # ── Post-training reingestion ─────────────────────────────────────────────────
 
-def reingest_optimized_skill(skill_name: str, db_id: Optional[int] = None):
+
+def reingest_optimized_skill(skill_name: str, db_id: int | None = None):
     """
     Called after `skillopt train` completes to push best_skill.md back into:
       1. .agents/skills/<skill_name>/SKILL.md  — live skill directory
@@ -295,7 +310,9 @@ def reingest_optimized_skill(skill_name: str, db_id: Optional[int] = None):
         SKILLOPT_ROOT, "outputs", skill_name, "best_skill.md"
     )
     if not os.path.exists(best_skill_path):
-        print(f"[skillopt] best_skill.md not found at {best_skill_path} — skipping reingest.")
+        print(
+            f"[skillopt] best_skill.md not found at {best_skill_path} — skipping reingest."
+        )
         return
 
     with open(best_skill_path) as f:
@@ -311,21 +328,26 @@ def reingest_optimized_skill(skill_name: str, db_id: Optional[int] = None):
 
     # 2. Upsert to Databricks
     try:
-        from databricks_store import SkillRecord, get_store as get_databricks_store
         import datetime
+
+        from databricks_store import SkillRecord
+        from databricks_store import get_store as get_databricks_store
+
         store = get_databricks_store()
-        store.write_skill(SkillRecord(
-            skill_id=str(db_id) if db_id else skill_name,
-            folder_name=skill_name,
-            skill_content=content,
-            target_url="",
-            mcp_script=None,
-            mcp_config=None,
-            langsmith_trace_url=None,
-            thread_id="",
-            user_id="",
-            created_at=datetime.datetime.utcnow().isoformat(),
-        ))
+        store.write_skill(
+            SkillRecord(
+                skill_id=str(db_id) if db_id else skill_name,
+                folder_name=skill_name,
+                skill_content=content,
+                target_url="",
+                mcp_script=None,
+                mcp_config=None,
+                langsmith_trace_url=None,
+                thread_id="",
+                user_id="",
+                created_at=datetime.datetime.utcnow().isoformat(),
+            )
+        )
         print(f"[skillopt] Databricks updated for {skill_name}")
     except Exception as exc:
         print(f"[skillopt] Databricks reingest failed (non-fatal): {exc}")
@@ -333,6 +355,7 @@ def reingest_optimized_skill(skill_name: str, db_id: Optional[int] = None):
     # 3. Update Redis vector store
     try:
         from context_surfaces import SkillVectorStore
+
         store = SkillVectorStore()
         skill_id = str(db_id) if db_id else skill_name
         n = store.ingest(skill_id=skill_id, markdown=content)
@@ -344,6 +367,7 @@ def reingest_optimized_skill(skill_name: str, db_id: Optional[int] = None):
 
 
 # ── Sleep Cycle Execution & Status ───────────────────────────────────────────
+
 
 def run_skillopt_cycle(db_id: int) -> dict:
     """
@@ -375,23 +399,25 @@ def run_skillopt_cycle(db_id: int) -> dict:
             sys.path.insert(0, SKILLOPT_ROOT)
 
         try:
-            from skillopt_sleep.cycle import run_sleep_cycle
             from skillopt_sleep.config import SleepConfig
+            from skillopt_sleep.cycle import run_sleep_cycle
 
             default_backend = "gemini" if os.environ.get("GEMINI_API_KEY") else "mock"
             backend_choice = os.environ.get("SKILLOPT_BACKEND", default_backend)
 
-            cfg = SleepConfig({
-                "backend": backend_choice,
-                "model": "gemini-2.0-flash",
-                "optimizer_backend": "openai_chat",
-                "optimizer_model": "gemini-2.0-flash",
-                "target_backend": "openai_chat",
-                "target_model": "gemini-2.0-flash",
-                "budget_usd": 1.0,
-                "project": skill_name,
-                "progress": True,
-            })
+            cfg = SleepConfig(
+                {
+                    "backend": backend_choice,
+                    "model": "gemini-2.0-flash",
+                    "optimizer_backend": "openai_chat",
+                    "optimizer_model": "gemini-2.0-flash",
+                    "target_backend": "openai_chat",
+                    "target_model": "gemini-2.0-flash",
+                    "budget_usd": 1.0,
+                    "project": skill_name,
+                    "progress": True,
+                }
+            )
 
             outcome = run_sleep_cycle(cfg)
             report = outcome.report
@@ -401,7 +427,15 @@ def run_skillopt_cycle(db_id: int) -> dict:
             os.makedirs(output_dir, exist_ok=True)
             best_skill_path = os.path.join(output_dir, "best_skill.md")
 
-            initial_path = os.path.join(SKILLOPT_ROOT, "skillopt", "envs", _SKILL_CARD_ENV, "skills", skill_name, "initial.md")
+            initial_path = os.path.join(
+                SKILLOPT_ROOT,
+                "skillopt",
+                "envs",
+                _SKILL_CARD_ENV,
+                "skills",
+                skill_name,
+                "initial.md",
+            )
             base_content = ""
             if os.path.exists(initial_path):
                 with open(initial_path) as f:
@@ -409,7 +443,9 @@ def run_skillopt_cycle(db_id: int) -> dict:
 
             # Append optimized rule modifications from sleep cycle
             if outcome.adopted_paths:
-                consolidated = "\n\n# SkillOpt Optimized Rules\n" + "\n".join(outcome.adopted_paths)
+                consolidated = "\n\n# SkillOpt Optimized Rules\n" + "\n".join(
+                    outcome.adopted_paths
+                )
                 best_content = base_content + consolidated
             else:
                 best_content = base_content
@@ -475,4 +511,3 @@ def get_skillopt_status(db_id: int) -> dict:
         "config_path": config_path if registered else None,
         "data_dir": data_dir if registered else None,
     }
-

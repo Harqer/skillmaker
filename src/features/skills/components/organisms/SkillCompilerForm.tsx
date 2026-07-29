@@ -121,7 +121,9 @@ export function SkillCompilerForm() {
 		const parts = activeFile.split("/");
 		const filename = parts[parts.length - 1] || activeFile;
 		const element = document.createElement("a");
-		const file = new Blob([activeFileContent], { type: "text/plain;charset=utf-8" });
+		const file = new Blob([activeFileContent], {
+			type: "text/plain;charset=utf-8",
+		});
 		element.href = URL.createObjectURL(file);
 		element.download = filename;
 		document.body.appendChild(element);
@@ -132,12 +134,16 @@ export function SkillCompilerForm() {
 	const handleDownloadFullBundle = () => {
 		if (!compiledSkill) return;
 		const bundle = parsedEveFiles || { "SKILL.md": compiledSkill.content };
-		if (compiledSkill.mcpScript) bundle["mcp_server.py"] = compiledSkill.mcpScript;
-		if (compiledSkill.mcpConfig) bundle["mcp_config.json"] = compiledSkill.mcpConfig;
+		if (compiledSkill.mcpScript)
+			bundle["mcp_server.py"] = compiledSkill.mcpScript;
+		if (compiledSkill.mcpConfig)
+			bundle["mcp_config.json"] = compiledSkill.mcpConfig;
 
 		const payload = JSON.stringify(bundle, null, 2);
 		const element = document.createElement("a");
-		const file = new Blob([payload], { type: "application/json;charset=utf-8" });
+		const file = new Blob([payload], {
+			type: "application/json;charset=utf-8",
+		});
 		element.href = URL.createObjectURL(file);
 		const safeTitle = compiledSkill.title
 			.toLowerCase()
@@ -149,15 +155,16 @@ export function SkillCompilerForm() {
 	};
 
 	// CoT list fallback / stream items
-	const cotList = telemetry?.chainOfThought && telemetry.chainOfThought.length > 0
-		? telemetry.chainOfThought
-		: [
-				"Initializing multi-stage Raven Deep Research & SkillOpt pipeline.",
-				"Streaming Markdown documentation & code snippets...",
-				"Generating Vector Embeddings & scanning official skill signatures...",
-				"Mining trajectory logs & formatting EVE Skill Bundle with Gemini 2.5...",
-				"Finalizing Redis Iris context layer & verifying compilation...",
-		  ];
+	const cotList =
+		telemetry?.chainOfThought && telemetry.chainOfThought.length > 0
+			? telemetry.chainOfThought
+			: [
+					"Initializing multi-stage Raven Deep Research & SkillOpt pipeline.",
+					"Streaming Markdown documentation & code snippets...",
+					"Generating Vector Embeddings & scanning official skill signatures...",
+					"Mining trajectory logs & formatting EVE Skill Bundle with Gemini 2.5...",
+					"Finalizing Redis Iris context layer & verifying compilation...",
+				];
 
 	const logsList = telemetry?.logs || [];
 
@@ -277,7 +284,8 @@ export function SkillCompilerForm() {
 								className="flex items-center justify-between w-full text-[11px] font-mono font-semibold text-muted-foreground hover:text-foreground transition-colors py-1 cursor-pointer"
 							>
 								<span className="flex items-center gap-1.5">
-									<Terminal className="w-3.5 h-3.5" /> Pipeline Telemetry Logs ({logsList.length})
+									<Terminal className="w-3.5 h-3.5" /> Pipeline Telemetry Logs (
+									{logsList.length})
 								</span>
 								{showLogs ? (
 									<ChevronUp className="w-3.5 h-3.5" />
@@ -289,7 +297,10 @@ export function SkillCompilerForm() {
 							{showLogs && (
 								<div className="mt-2 rounded-xl bg-zinc-950 p-3 font-mono text-[11px] text-zinc-300 max-h-40 overflow-y-auto space-y-1">
 									{logsList.map((log) => (
-										<div key={log} className="text-emerald-400/90 whitespace-pre-wrap leading-tight">
+										<div
+											key={log}
+											className="text-emerald-400/90 whitespace-pre-wrap leading-tight"
+										>
 											{log}
 										</div>
 									))}

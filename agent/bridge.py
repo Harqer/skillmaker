@@ -6,10 +6,10 @@ This script executes Raven / LangGraph / Gemini Deep Research pipelines as a nat
 passing environment secrets directly and returning real structured EVE Skill Bundles.
 """
 
-import sys
-import os
-import json
 import argparse
+import json
+import os
+import sys
 
 # Ensure agent directory and Raven directory are on PYTHONPATH
 agent_dir = os.path.dirname(os.path.abspath(__file__))
@@ -18,6 +18,7 @@ if agent_dir not in sys.path:
     sys.path.insert(0, agent_dir)
 if raven_dir not in sys.path:
     sys.path.insert(0, raven_dir)
+
 
 def run_raven_synthesis(urls: list[str], prompt: str = "", include_mcp: bool = False):
     """
@@ -38,31 +39,49 @@ def run_raven_synthesis(urls: list[str], prompt: str = "", include_mcp: bool = F
     # ── Bulk scrape ALL URLs and store in Databricks ───────────────────────────
     try:
         from scraper import bulk_scrape_docs
+
         bulk_markdowns = bulk_scrape_docs(urls)
-        sys.stderr.write(f"[Bridge] Bulk scraped {len(bulk_markdowns)} URLs ({sum(len(v) for v in bulk_markdowns.values()):,} total chars)\n")
+        sys.stderr.write(
+            f"[Bridge] Bulk scraped {len(bulk_markdowns)} URLs ({sum(len(v) for v in bulk_markdowns.values()):,} total chars)\n"
+        )
 
         try:
-            from databricks_store import get_store, SkillRecord
+            from databricks_store import SkillRecord, get_store
+
             db_store = get_store()
             if db_store:
                 for scrape_url, md in bulk_markdowns.items():
                     if md.startswith("[scraper] bulk scrape failed"):
                         continue
-                    domain = scrape_url.replace("https://", "").replace("http://", "").split("/")[0]
+                    domain = (
+                        scrape_url.replace("https://", "")
+                        .replace("http://", "")
+                        .split("/")[0]
+                    )
                     import uuid
-                    db_store.write_skill(SkillRecord(
-                        skill_id=f"bridge_bulk_{uuid.uuid4().hex[:8]}",
-                        folder_name=domain,
-                        target_url=scrape_url,
-                        skill_content=f"# Bulk Documentation Corpus for {scrape_url}\n\n{md}",
-                        mcp_script=None,
-                        mcp_config=None,
-                        langsmith_trace_url=None,
-                        thread_id="raven_subprocess_bridge",
-                        user_id="raven_engine",
-                        tags=["databricks_vector_index", "bulk_markdown", "lakehouse", "bridge_bulk"]
-                    ))
-                sys.stderr.write(f"[Bridge] Stored {len(bulk_markdowns)} bulk markdowns in Databricks Delta Lake\n")
+
+                    db_store.write_skill(
+                        SkillRecord(
+                            skill_id=f"bridge_bulk_{uuid.uuid4().hex[:8]}",
+                            folder_name=domain,
+                            target_url=scrape_url,
+                            skill_content=f"# Bulk Documentation Corpus for {scrape_url}\n\n{md}",
+                            mcp_script=None,
+                            mcp_config=None,
+                            langsmith_trace_url=None,
+                            thread_id="raven_subprocess_bridge",
+                            user_id="raven_engine",
+                            tags=[
+                                "databricks_vector_index",
+                                "bulk_markdown",
+                                "lakehouse",
+                                "bridge_bulk",
+                            ],
+                        )
+                    )
+                sys.stderr.write(
+                    f"[Bridge] Stored {len(bulk_markdowns)} bulk markdowns in Databricks Delta Lake\n"
+                )
         except Exception as db_err:
             sys.stderr.write(f"[Bridge Databricks Warning] {db_err}\n")
     except Exception as scrape_err:
@@ -125,23 +144,26 @@ Return valid JSON with schema:
                 contents=prompt_content,
                 config=types.GenerateContentConfig(
                     system_instruction=system_instruction,
-                    response_mime_type="application/json"
-                )
+                    response_mime_type="application/json",
+                ),
             )
             output_text = response.text
         except Exception as sdk_err:
-            sys.stderr.write(f"[Bridge SDK Info] google.genai SDK not available ({sdk_err}), using native urllib REST API call...\n")
+            sys.stderr.write(
+                f"[Bridge SDK Info] google.genai SDK not available ({sdk_err}), using native urllib REST API call...\n"
+            )
             import urllib.request
+
             gemini_url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
             payload = {
                 "contents": [{"parts": [{"text": prompt_content}]}],
                 "systemInstruction": {"parts": [{"text": system_instruction}]},
-                "generationConfig": {"responseMimeType": "application/json"}
+                "generationConfig": {"responseMimeType": "application/json"},
             }
             req = urllib.request.Request(
                 gemini_url,
                 data=json.dumps(payload).encode("utf-8"),
-                headers={"Content-Type": "application/json"}
+                headers={"Content-Type": "application/json"},
             )
             with urllib.request.urlopen(req, timeout=90) as resp:
                 res_data = json.loads(resp.read().decode("utf-8"))
@@ -156,7 +178,13 @@ Return valid JSON with schema:
 
             # ── PHYSICAL PERSISTENCE 1: Physical File System Storage ─────────────
             import uuid
-            skill_folder_name = parsed.get("title", "eve_skill").lower().replace(" ", "_").replace("/", "_")
+
+            skill_folder_name = (
+                parsed.get("title", "eve_skill")
+                .lower()
+                .replace(" ", "_")
+                .replace("/", "_")
+            )
             out_dir = os.path.join(agent_dir, "generated_skills", skill_folder_name)
             os.makedirs(out_dir, exist_ok=True)
 
@@ -172,23 +200,30 @@ Return valid JSON with schema:
 
             # ── PHYSICAL PERSISTENCE 2: Databricks Lakehouse Store Sync ──────────
             try:
-                from databricks_store import get_store, SkillRecord
+                from databricks_store import SkillRecord, get_store
+
                 db_store = get_store()
                 if db_store:
                     skill_id = f"eve_{uuid.uuid4().hex[:8]}"
-                    skill_md = eve_files.get("skills/SKILL.md") or parsed.get("description", "")
-                    db_store.write_skill(SkillRecord(
-                        skill_id=skill_id,
-                        folder_name=skill_folder_name,
-                        target_url=primary_url,
-                        skill_content=skill_md,
-                        mcp_script=parsed.get("mcpScript"),
-                        mcp_config=parsed.get("mcpConfig") if isinstance(parsed.get("mcpConfig"), dict) else None,
-                        langsmith_trace_url=None,
-                        thread_id="raven_subprocess_bridge",
-                        user_id="raven_engine",
-                        tags=parsed.get("tags", ["eve_bundle", "raven_engine"])
-                    ))
+                    skill_md = eve_files.get("skills/SKILL.md") or parsed.get(
+                        "description", ""
+                    )
+                    db_store.write_skill(
+                        SkillRecord(
+                            skill_id=skill_id,
+                            folder_name=skill_folder_name,
+                            target_url=primary_url,
+                            skill_content=skill_md,
+                            mcp_script=parsed.get("mcpScript"),
+                            mcp_config=parsed.get("mcpConfig")
+                            if isinstance(parsed.get("mcpConfig"), dict)
+                            else None,
+                            langsmith_trace_url=None,
+                            thread_id="raven_subprocess_bridge",
+                            user_id="raven_engine",
+                            tags=parsed.get("tags", ["eve_bundle", "raven_engine"]),
+                        )
+                    )
                     db_store.write_trace(
                         run_id=skill_id,
                         thread_id="raven_subprocess_bridge",
@@ -197,7 +232,9 @@ Return valid JSON with schema:
                         target_url=primary_url,
                     )
                     parsed["databricks_persisted"] = True
-                    sys.stderr.write(f"[Databricks Store] Successfully persisted skill record {skill_id} to Delta Lake\n")
+                    sys.stderr.write(
+                        f"[Databricks Store] Successfully persisted skill record {skill_id} to Delta Lake\n"
+                    )
             except Exception as db_err:
                 sys.stderr.write(f"[Databricks Store Warning] {db_err}\n")
                 parsed["databricks_persisted"] = False
@@ -209,18 +246,31 @@ Return valid JSON with schema:
             return {"error": "Raven synthesis model returned empty response."}
 
     except Exception as e:
-        return {"error": f"Raven Python Subprocess execution error: {str(e)}"}
+        return {"error": f"Raven Python Subprocess execution error: {e!s}"}
+
 
 def main():
-    parser = argparse.ArgumentParser(description="Raven Subprocess Bridge for EVE Skill Generation")
-    parser.add_argument("--urls", nargs="+", required=True, help="One or more target URLs to scrape & research")
+    parser = argparse.ArgumentParser(
+        description="Raven Subprocess Bridge for EVE Skill Generation"
+    )
+    parser.add_argument(
+        "--urls",
+        nargs="+",
+        required=True,
+        help="One or more target URLs to scrape & research",
+    )
     parser.add_argument("--prompt", default="", help="Prompt directives")
-    parser.add_argument("--include-mcp", action="store_true", help="Include MCP server generation")
+    parser.add_argument(
+        "--include-mcp", action="store_true", help="Include MCP server generation"
+    )
 
     args = parser.parse_args()
 
-    result = run_raven_synthesis(urls=args.urls, prompt=args.prompt, include_mcp=args.include_mcp)
+    result = run_raven_synthesis(
+        urls=args.urls, prompt=args.prompt, include_mcp=args.include_mcp
+    )
     print(json.dumps(result))
+
 
 if __name__ == "__main__":
     main()

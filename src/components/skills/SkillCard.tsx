@@ -56,8 +56,12 @@ export default function SkillCard({
 	}
 
 	const fileKeys = parsedFiles ? Object.keys(parsedFiles) : [];
-	const activeFileKey = selectedFile && fileKeys.includes(selectedFile) ? selectedFile : fileKeys[0];
-	const activeFileContent = parsedFiles && activeFileKey ? parsedFiles[activeFileKey] : content;
+	const activeFileKey =
+		selectedFile && fileKeys.includes(selectedFile)
+			? selectedFile
+			: fileKeys[0];
+	const activeFileContent =
+		parsedFiles && activeFileKey ? parsedFiles[activeFileKey] : content;
 
 	const handleCopy = async (e: React.MouseEvent) => {
 		e.stopPropagation();

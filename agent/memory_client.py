@@ -13,29 +13,32 @@ If any credential is missing the client degrades gracefully (logs a
 warning, returns None/empty) so skill generation is never blocked by
 a memory service outage.
 """
+
 from __future__ import annotations
 
 import time
-from typing import Optional
 
 from config import AGENT_MEMORY_BASE_URL, AGENT_MEMORY_STORE_ID, AGENT_MEMORY_TOKEN
 
 # ── Role constants (resolved lazily to avoid import-time SDK errors) ──────────
 
+
 def _role(role_str: str):
     """Map a string role name to the SDK's MessageRole enum value."""
-    from redis_agent_memory import models  # noqa: PLC0415
+    from redis_agent_memory import models
+
     _map = {
-        "USER":              models.MessageRole.USER,
-        "AGENT":             models.MessageRole.ASSISTANT,
-        "ASSISTANT":         models.MessageRole.ASSISTANT,
-        "SYSTEM":            models.MessageRole.SYSTEM,
+        "USER": models.MessageRole.USER,
+        "AGENT": models.MessageRole.ASSISTANT,
+        "ASSISTANT": models.MessageRole.ASSISTANT,
+        "SYSTEM": models.MessageRole.SYSTEM,
         "SYSTEM_REFLECTION": models.MessageRole.SYSTEM,
     }
     return _map.get(role_str.upper(), models.MessageRole.USER)
 
 
 # ── Client wrapper ────────────────────────────────────────────────────────────
+
 
 class RedisAgentMemoryClient:
     """
@@ -59,7 +62,9 @@ class RedisAgentMemoryClient:
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _is_configured(self) -> bool:
-        return bool(AGENT_MEMORY_BASE_URL and AGENT_MEMORY_STORE_ID and AGENT_MEMORY_TOKEN)
+        return bool(
+            AGENT_MEMORY_BASE_URL and AGENT_MEMORY_STORE_ID and AGENT_MEMORY_TOKEN
+        )
 
     def _get_client(self):
         """Return the persistent SDK client, creating it on first call."""
@@ -75,7 +80,7 @@ class RedisAgentMemoryClient:
             return None
 
         try:
-            from redis_agent_memory import AgentMemory  # noqa: PLC0415
+            from redis_agent_memory import AgentMemory
 
             client = AgentMemory(
                 AGENT_MEMORY_BASE_URL,
@@ -103,7 +108,7 @@ class RedisAgentMemoryClient:
         role: str,
         text: str,
         actor_id: str = "skill-maker-agent",
-        metadata: Optional[dict] = None,
+        metadata: dict | None = None,
     ) -> None:
         """
         Append one turn to a session's short-term memory.
@@ -130,7 +135,7 @@ class RedisAgentMemoryClient:
         except Exception as exc:
             print(f"[memory_client] add_session_event failed: {exc}")
 
-    def get_session_memory(self, session_id: str) -> Optional[object]:
+    def get_session_memory(self, session_id: str) -> object | None:
         """Return the full session memory object for the given session_id."""
         client = self._get_client()
         if client is None:

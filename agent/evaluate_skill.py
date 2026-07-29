@@ -14,17 +14,18 @@ References:
   https://docs.langchain.com/langsmith/evaluation-quickstart
   https://docs.langchain.com/langsmith/evaluate-llm-application
 """
+
 import json
 import sys
 import uuid
+
+import config  # noqa — runs Infisical SDK bootstrap, sets LANGCHAIN_TRACING_V2 & API keys
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langsmith import Client
 
-import config  # noqa — runs Infisical SDK bootstrap, sets LANGCHAIN_TRACING_V2 & API keys
-
-
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
 
 def _make_llm() -> ChatGoogleGenerativeAI:
     """Always temperature=0 for deterministic evaluation runs."""
@@ -38,6 +39,7 @@ def _token_count(response) -> int:
 
 
 # ── Main entry point ──────────────────────────────────────────────────────────
+
 
 def evaluate_skill(prompt: str, skill_content: str, assertions: list) -> dict:
     """
@@ -72,25 +74,39 @@ def evaluate_skill(prompt: str, skill_content: str, assertions: list) -> dict:
     def baseline_app(inputs: dict) -> dict:
         """Vanilla LLM — no skill guidance."""
         llm = _make_llm()
-        chain = ChatPromptTemplate.from_messages([
-            ("system", "You are a helpful AI assistant."),
-            ("user", "{prompt}"),
-        ]) | llm
+        chain = (
+            ChatPromptTemplate.from_messages(
+                [
+                    ("system", "You are a helpful AI assistant."),
+                    ("user", "{prompt}"),
+                ]
+            )
+            | llm
+        )
         response = chain.invoke({"prompt": inputs["prompt"]})
         return {"output": response.content, "tokens": _token_count(response)}
 
     def guided_app(inputs: dict) -> dict:
         """Skill-guided LLM — instructed by the SKILL.md content."""
         llm = _make_llm()
-        chain = ChatPromptTemplate.from_messages([
-            ("system",
-             "You are an expert agent. Follow these strict skill guidelines:\n\n{skill_content}"),
-            ("user", "{prompt}"),
-        ]) | llm
-        response = chain.invoke({
-            "prompt": inputs["prompt"],
-            "skill_content": skill_content,
-        })
+        chain = (
+            ChatPromptTemplate.from_messages(
+                [
+                    (
+                        "system",
+                        "You are an expert agent. Follow these strict skill guidelines:\n\n{skill_content}",
+                    ),
+                    ("user", "{prompt}"),
+                ]
+            )
+            | llm
+        )
+        response = chain.invoke(
+            {
+                "prompt": inputs["prompt"],
+                "skill_content": skill_content,
+            }
+        )
         return {"output": response.content, "tokens": _token_count(response)}
 
     # ── 3. LLM-as-judge evaluator (2026 signature: plain dicts) ──────────────
@@ -108,31 +124,45 @@ def evaluate_skill(prompt: str, skill_content: str, assertions: list) -> dict:
         output_text = outputs.get("output", "")
         assertions_list = reference_outputs.get("assertions", [])
 
-        grader_prompt = ChatPromptTemplate.from_messages([
-            ("system",
-             "You are an objective expert agent evaluator acting as a skill-testing grader."),
-            ("user",
-             "Output to grade:\n{output}\n\nAssertions:\n{assertions_text}\n\n"
-             "For each assertion, determine if the Output passed it and provide evidence. "
-             "Your response MUST be a JSON array of objects with keys "
-             "'assertion' (string), 'passed' (boolean), and 'evidence' (string) "
-             "corresponding to each assertion in order."),
-        ])
+        grader_prompt = ChatPromptTemplate.from_messages(
+            [
+                (
+                    "system",
+                    "You are an objective expert agent evaluator acting as a skill-testing grader.",
+                ),
+                (
+                    "user",
+                    (
+                        "Output to grade:\n{output}\n\nAssertions:\n{assertions_text}\n\n"
+                        "For each assertion, determine if the Output passed it and provide evidence. "
+                        "Your response MUST be a JSON array of objects with keys "
+                        "'assertion' (string), 'passed' (boolean), and 'evidence' (string) "
+                        "corresponding to each assertion in order."
+                    ),
+                ),
+            ]
+        )
 
         assertions_text = "\n".join(
             f"{i + 1}. {a}" for i, a in enumerate(assertions_list)
         )
-        response = (grader_prompt | llm).invoke({
-            "output": output_text,
-            "assertions_text": assertions_text,
-        })
+        response = (grader_prompt | llm).invoke(
+            {
+                "output": output_text,
+                "assertions_text": assertions_text,
+            }
+        )
 
         try:
             text = response.content.replace("```json", "").replace("```", "").strip()
             result = json.loads(text)
         except Exception:
             result = [
-                {"assertion": a, "passed": False, "evidence": "Failed to parse grader JSON"}
+                {
+                    "assertion": a,
+                    "passed": False,
+                    "evidence": "Failed to parse grader JSON",
+                }
                 for a in assertions_list
             ]
 
@@ -204,7 +234,9 @@ def evaluate_skill(prompt: str, skill_content: str, assertions: list) -> dict:
     final_guided = extract_metrics(guided_results)
 
     # Clean up the ephemeral dataset if the skill passed all assertions
-    all_guided_passed = all(g.get("passed", False) for g in final_guided.get("grades", []))
+    all_guided_passed = all(
+        g.get("passed", False) for g in final_guided.get("grades", [])
+    )
     if all_guided_passed:
         ls_client.delete_dataset(dataset_id=dataset.id)
 
@@ -219,7 +251,7 @@ def evaluate_skill(prompt: str, skill_content: str, assertions: list) -> dict:
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         print("Usage: python evaluate_skill.py '<json_input>'")
-        print("  json_input: {\"prompt\": str, \"skill_content\": str, \"assertions\": list}")
+        print('  json_input: {"prompt": str, "skill_content": str, "assertions": list}')
         sys.exit(1)
 
     try:

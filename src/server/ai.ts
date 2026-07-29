@@ -1,13 +1,13 @@
 import { auth } from "@clerk/tanstack-react-start/server";
 import { createServerFn } from "@tanstack/react-start";
-import { z } from "zod";
 import { eq } from "drizzle-orm";
-import { db, inMemorySkills } from "../lib/db";
-import { skills, users } from "../lib/db/schema";
+import { z } from "zod";
 import {
 	generateSkill as apiGenerateSkill,
 	getSkillRequest as apiGetSkillRequest,
 } from "../lib/api-client";
+import { db, inMemorySkills } from "../lib/db";
+import { skills, users } from "../lib/db/schema";
 
 // ── Canonical Pre-computed Skill Suite (0-Token Interception Store) ────────────
 export const CANONICAL_PRECOMPUTED_SKILLS: Record<
@@ -410,7 +410,8 @@ function findCanonicalMatch(url: string) {
 	const lowercaseUrl = url.toLowerCase();
 	for (const [key, value] of Object.entries(CANONICAL_PRECOMPUTED_SKILLS)) {
 		if (
-			lowercaseUrl.includes(key) || lowercaseUrl.includes(value.canonicalDomain)
+			lowercaseUrl.includes(key) ||
+			lowercaseUrl.includes(value.canonicalDomain)
 		) {
 			return value;
 		}
@@ -420,11 +421,13 @@ function findCanonicalMatch(url: string) {
 		lowercaseUrl.includes("loop") ||
 		lowercaseUrl.includes("cobus") ||
 		lowercaseUrl.includes("loop-engineering")
-	) return CANONICAL_PRECOMPUTED_SKILLS["cobusgreyling/loop-engineering"];
+	)
+		return CANONICAL_PRECOMPUTED_SKILLS["cobusgreyling/loop-engineering"];
 	if (lowercaseUrl.includes("raven") || lowercaseUrl.includes("evermind")) {
 		return CANONICAL_PRECOMPUTED_SKILLS["evermind-ai/raven"];
 	}
-	if (lowercaseUrl.includes("stripe")) return CANONICAL_PRECOMPUTED_SKILLS["stripe.com"];
+	if (lowercaseUrl.includes("stripe"))
+		return CANONICAL_PRECOMPUTED_SKILLS["stripe.com"];
 	if (lowercaseUrl.includes("meta") || lowercaseUrl.includes("wearable")) {
 		return CANONICAL_PRECOMPUTED_SKILLS["meta.com"];
 	}
@@ -434,7 +437,8 @@ function findCanonicalMatch(url: string) {
 	if (lowercaseUrl.includes("next") || lowercaseUrl.includes("react")) {
 		return CANONICAL_PRECOMPUTED_SKILLS["nextjs.org"];
 	}
-	if (lowercaseUrl.includes("tailwind")) return CANONICAL_PRECOMPUTED_SKILLS["tailwindcss.com"];
+	if (lowercaseUrl.includes("tailwind"))
+		return CANONICAL_PRECOMPUTED_SKILLS["tailwindcss.com"];
 	return null;
 }
 
@@ -570,12 +574,7 @@ Return valid JSON with schema:
 					: `Production-grade EVE agent skill for ${domainClean} compiled via Raven Deep Research & Databricks Lakehouse Vector Search.`,
 				tags: isAdk
 					? ["Google ADK", "Multi-Agent", "Gemini", "LlmAgent"]
-					: [
-							"EVE",
-							domainClean.split(".")[0],
-							"Agent",
-							"SkillOpt",
-						],
+					: ["EVE", domainClean.split(".")[0], "Agent", "SkillOpt"],
 				eveFiles: {
 					"instructions.md": isAdk
 						? `# Lead Agent Coordinator - Google ADK Multi-Agent System\nYou are the Lead Agent Coordinator for Google Agent Development Kit (ADK).\n\n## Core Principles & ADK Architecture\n1. **Multi-Agent by Design**: Compose specialized \`LlmAgent\` hierarchies for complex tasks.\n2. **Tool Ecosystem**: Equip agents with \`google_search\`, FastMCP servers, and custom tools.\n3. **Model Selection**: Standardize on \`gemini-2.5-flash\` or \`gemini-2.0-flash-exp\`.\n4. **Loop Safety**: Enforce \`max_iterations: 5\` across all agent loops.\n\n## Subagent Delegation\n- Route query parsing to \`/subagents/specialist.md\`.\n- Enforce skill boundaries in \`/skills/SKILL.md\`.`
@@ -619,7 +618,9 @@ Return valid JSON with schema:
 							"skills/SKILL.md":
 								"# SkillOpt Trained Skill\nCompiled skill instructions and rules.",
 						}),
-			tags: (Array.isArray(parsed.tags) ? parsed.tags : ["AI", "Agent"]) as string[],
+			tags: (Array.isArray(parsed.tags)
+				? parsed.tags
+				: ["AI", "Agent"]) as string[],
 			mcpScript: (parsed.mcpScript as string | null) || null,
 			mcpConfig: (parsed.mcpConfig as string | null) || null,
 			traceUrl:
@@ -658,7 +659,10 @@ Return valid JSON with schema:
 				generatedSkillId = inserted.id;
 			}
 		} catch (dbErr) {
-			console.warn("Could not insert skill into DB, storing in memory skills:", dbErr);
+			console.warn(
+				"Could not insert skill into DB, storing in memory skills:",
+				dbErr,
+			);
 		}
 
 		const fullCreatedSkill = {
@@ -809,30 +813,30 @@ export const generateSkillFromUrl = createServerFn({ method: "POST" })
 				};
 				inMemorySkills.unshift(dbSkill);
 
-			localGenerationStore.set(localId, {
-				id: localId,
-				url: data.url,
-				status: "completed",
-				progressStep:
-					"Stage 0 LangCache Hit: Served directly from Neon Database Cache.",
-				partitionNode,
-				cacheHit: true,
-				cacheType: "PostgreSQL Skill Cache",
-				tokensSaved: 14500,
-				latencyMs: 18,
-				logs: [
-					`[${new Date().toLocaleTimeString()}] [DBCache] Found existing skill for ${data.url}`,
-				],
-				chainOfThought: [
-					`Retrieved existing skill bundle from Neon database`,
-				],
-				eventualSyncStatus: {
-					dbReplicated: true,
-					vectorIndexed: true,
-					cdnPushed: true,
-				},
-				createdSkill: dbSkill,
-			});
+				localGenerationStore.set(localId, {
+					id: localId,
+					url: data.url,
+					status: "completed",
+					progressStep:
+						"Stage 0 LangCache Hit: Served directly from Neon Database Cache.",
+					partitionNode,
+					cacheHit: true,
+					cacheType: "PostgreSQL Skill Cache",
+					tokensSaved: 14500,
+					latencyMs: 18,
+					logs: [
+						`[${new Date().toLocaleTimeString()}] [DBCache] Found existing skill for ${data.url}`,
+					],
+					chainOfThought: [
+						`Retrieved existing skill bundle from Neon database`,
+					],
+					eventualSyncStatus: {
+						dbReplicated: true,
+						vectorIndexed: true,
+						cdnPushed: true,
+					},
+					createdSkill: dbSkill,
+				});
 
 				return {
 					status: "enqueued",
@@ -842,7 +846,10 @@ export const generateSkillFromUrl = createServerFn({ method: "POST" })
 				};
 			}
 		} catch (dbCacheErr) {
-			console.warn("DB cache query failed, falling through to generation pipeline:", dbCacheErr);
+			console.warn(
+				"DB cache query failed, falling through to generation pipeline:",
+				dbCacheErr,
+			);
 		}
 
 		// 2. Uncached / Custom URL: Try FastAPI backend, fall back to Gemini
@@ -857,29 +864,29 @@ export const generateSkillFromUrl = createServerFn({ method: "POST" })
 			if (!apiRes.error && apiRes.status === "enqueued") {
 				const backendDbId = apiRes.db_id ?? localId;
 				// Store a pending record in local store for the polling loop
-			localGenerationStore.set(Number(backendDbId), {
-				id: Number(backendDbId),
-				url: data.url,
-				status: "enqueued",
-				progressStep:
-					"Request enqueued on FastAPI backend worker. Telemetry streaming...",
-				partitionNode,
-				cacheHit: false,
-				cacheType: "FastAPI Backend Generation",
-				tokensSaved: 0,
-				latencyMs: 0,
-				logs: [
-					`[${new Date().toLocaleTimeString()}] [Backend] Job enqueued on FastAPI backend (job_id: ${apiRes.job_id || "N/A"})`,
-				],
-				chainOfThought: [
-					`Dispatched generation to FastAPI backend for ${data.url}`,
-				],
-				eventualSyncStatus: {
-					dbReplicated: false,
-					vectorIndexed: false,
-					cdnPushed: false,
-				},
-			});
+				localGenerationStore.set(Number(backendDbId), {
+					id: Number(backendDbId),
+					url: data.url,
+					status: "enqueued",
+					progressStep:
+						"Request enqueued on FastAPI backend worker. Telemetry streaming...",
+					partitionNode,
+					cacheHit: false,
+					cacheType: "FastAPI Backend Generation",
+					tokensSaved: 0,
+					latencyMs: 0,
+					logs: [
+						`[${new Date().toLocaleTimeString()}] [Backend] Job enqueued on FastAPI backend (job_id: ${apiRes.job_id || "N/A"})`,
+					],
+					chainOfThought: [
+						`Dispatched generation to FastAPI backend for ${data.url}`,
+					],
+					eventualSyncStatus: {
+						dbReplicated: false,
+						vectorIndexed: false,
+						cdnPushed: false,
+					},
+				});
 
 				return {
 					status: "enqueued",
@@ -895,7 +902,10 @@ export const generateSkillFromUrl = createServerFn({ method: "POST" })
 				apiRes.error,
 			);
 		} catch (apiErr) {
-			console.warn("FastAPI backend unreachable, falling through to Gemini fallback:", apiErr);
+			console.warn(
+				"FastAPI backend unreachable, falling through to Gemini fallback:",
+				apiErr,
+			);
 		}
 
 		// 3. Fallback: Run Gemini direct pipeline asynchronously
@@ -908,9 +918,7 @@ export const generateSkillFromUrl = createServerFn({ method: "POST" })
 			logs: [
 				`[${new Date().toLocaleTimeString()}] [Job Enqueued] Task #${localId} assigned to partition ${partitionNode}`,
 			],
-			chainOfThought: [
-				`Initialized fallback compiler task for ${data.url}`,
-			],
+			chainOfThought: [`Initialized fallback compiler task for ${data.url}`],
 			partitionNode,
 			cacheHit: false,
 			cacheType: "Gemini Fallback",
@@ -1077,7 +1085,10 @@ export const generateBatchSkillsFromUrls = createServerFn({ method: "POST" })
 					throw new Error(apiRes.error || "Backend returned no db_id");
 				}
 			} catch (err) {
-				console.warn("Backend bulk call failed, falling through to Gemini:", err);
+				console.warn(
+					"Backend bulk call failed, falling through to Gemini:",
+					err,
+				);
 				// 3. Fallback: single Gemini call summarizing all URLs
 				runGeminiFallback(
 					scrapeUrls.join(", "),
@@ -1163,9 +1174,7 @@ export const getGenerationStatus = createServerFn({ method: "POST" })
 		);
 
 		if (!backendRes.error && backendRes.status) {
-			const partitionNode = getWorkerPartitionNode(
-				backendRes.url || "",
-			);
+			const partitionNode = getWorkerPartitionNode(backendRes.url || "");
 			return {
 				status: backendRes.status,
 				progressStep:
@@ -1195,10 +1204,8 @@ export const getGenerationStatus = createServerFn({ method: "POST" })
 							tags: [],
 							authorId: currentUserId,
 							upvotes: 0,
-							mcpScript:
-								backendRes.createdSkill.files?.mcp_server || null,
-							mcpConfig:
-								backendRes.createdSkill.files?.mcp_config || null,
+							mcpScript: backendRes.createdSkill.files?.mcp_server || null,
+							mcpConfig: backendRes.createdSkill.files?.mcp_config || null,
 							traceUrl: backendRes.trace_url || null,
 							sourceUrl: backendRes.url || null,
 							createdAt: new Date().toISOString(),
@@ -1219,120 +1226,121 @@ export const getGenerationStatus = createServerFn({ method: "POST" })
 	});
 
 // ── getArchitectureTelemetry ───────────────────────────────────────────────────
-export const getArchitectureTelemetry = createServerFn({ method: "GET" }).handler(
-	async () => {
-		const jobs = Array.from(localGenerationStore.values());
-		const totalJobs = jobs.length;
-		const cacheHits = jobs.filter((j) => j.cacheHit).length;
-		const totalTokensSaved = jobs.reduce(
-			(acc, j) => acc + (j.tokensSaved || 0),
-			0,
-		);
+export const getArchitectureTelemetry = createServerFn({
+	method: "GET",
+}).handler(async () => {
+	const jobs = Array.from(localGenerationStore.values());
+	const totalJobs = jobs.length;
+	const cacheHits = jobs.filter((j) => j.cacheHit).length;
+	const totalTokensSaved = jobs.reduce(
+		(acc, j) => acc + (j.tokensSaved || 0),
+		0,
+	);
 
-		return {
-			edgeGateway: {
-				status: "healthy",
-				ingressRate: "4,250 req/sec",
-				deduplicationCoalesceRate: "94.2%",
-				tokenBucketCapacity: "10,000/sec",
+	return {
+		edgeGateway: {
+			status: "healthy",
+			ingressRate: "4,250 req/sec",
+			deduplicationCoalesceRate: "94.2%",
+			tokenBucketCapacity: "10,000/sec",
+		},
+		canonicalCache: {
+			hitRatio:
+				totalJobs > 0
+					? `${((cacheHits / totalJobs) * 100).toFixed(1)}%`
+					: "84.6%",
+			totalTokensSaved,
+			avgHitLatencyMs: 12,
+		},
+		redisIrisEngine: {
+			langCachePromptCaching: {
+				status: "active",
+				hitLatencyMs: "1.8ms",
+				promptTokenSavingsRatio: "89.4%",
+				semanticSimilarityThreshold: 0.92,
 			},
-			canonicalCache: {
-				hitRatio:
-					totalJobs > 0
-						? `${((cacheHits / totalJobs) * 100).toFixed(1)}%`
-						: "84.6%",
-				totalTokensSaved,
-				avgHitLatencyMs: 12,
+			contextRetrieverToolSearch: {
+				status: "active",
+				governedToolsIndexed: 48,
+				autoToolSelectionLatencyMs: "4.2ms",
+				schemaDrivenPaths: "enabled",
 			},
-			redisIrisEngine: {
-				langCachePromptCaching: {
-					status: "active",
-					hitLatencyMs: "1.8ms",
-					promptTokenSavingsRatio: "89.4%",
-					semanticSimilarityThreshold: 0.92,
-				},
-				contextRetrieverToolSearch: {
-					status: "active",
-					governedToolsIndexed: 48,
-					autoToolSelectionLatencyMs: "4.2ms",
-					schemaDrivenPaths: "enabled",
-				},
-				agentMemoryStore: {
-					sessionWorkingMemory: "active (TTL: 24h)",
-					longTermMemoryEntries: 1420,
-					nonBlockingExtractionWorker: "running",
-				},
-				redisDataIntegrationRDI: {
-					cdcSyncLatency: "<1.2s",
-					sourceDbTypes: ["PostgreSQL", "MySQL"],
-					throughputRecordsPerSec: "10,000/sec",
-				},
+			agentMemoryStore: {
+				sessionWorkingMemory: "active (TTL: 24h)",
+				longTermMemoryEntries: 1420,
+				nonBlockingExtractionWorker: "running",
 			},
-			partitionRing: {
-				shards: WORKER_NODES.map((node) => ({
-					name: node,
-					activeJobs: jobs.filter(
-						(j) => j.partitionNode === node && j.status !== "completed",
-					).length,
-					status: "active" as const,
-				})),
+			redisDataIntegrationRDI: {
+				cdcSyncLatency: "<1.2s",
+				sourceDbTypes: ["PostgreSQL", "MySQL"],
+				throughputRecordsPerSec: "10,000/sec",
 			},
-			eventualSync: {
-				dbWriteReplicaLagMs: 14,
-				vectorIndexStalenessSec: 0.8,
-				cdnInvalidationStatus: "synced",
-			},
-		};
-	},
-);
+		},
+		partitionRing: {
+			shards: WORKER_NODES.map((node) => ({
+				name: node,
+				activeJobs: jobs.filter(
+					(j) => j.partitionNode === node && j.status !== "completed",
+				).length,
+				status: "active" as const,
+			})),
+		},
+		eventualSync: {
+			dbWriteReplicaLagMs: 14,
+			vectorIndexStalenessSec: 0.8,
+			cdnInvalidationStatus: "synced",
+		},
+	};
+});
 
 // ── pingIntegrations ──────────────────────────────────────────────────────────
-export const pingIntegrations = createServerFn({ method: "POST" }).handler(async () => {
-	const results: Record<
-		string,
-		{ status: "ok" | "error"; message: string; latencyMs: number }
-	> = {};
+export const pingIntegrations = createServerFn({ method: "POST" }).handler(
+	async () => {
+		const results: Record<
+			string,
+			{ status: "ok" | "error"; message: string; latencyMs: number }
+		> = {};
 
-	// 1. Ping Gemini API key execution
-	const startGemini = Date.now();
-	try {
-		const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
-		if (!apiKey) {
+		// 1. Ping Gemini API key execution
+		const startGemini = Date.now();
+		try {
+			const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY;
+			if (!apiKey) {
+				results.gemini = {
+					status: "error",
+					message:
+						"GEMINI_API_KEY / GOOGLE_API_KEY not found in process environment",
+					latencyMs: 0,
+				};
+			} else {
+				const { GoogleGenAI } = await import("@google/genai");
+				const ai = new GoogleGenAI({ apiKey });
+				const resp = await ai.models.generateContent({
+					model: "gemini-2.5-flash",
+					contents: "ping",
+				});
+				results.gemini = {
+					status: "ok",
+					message: `Executable - Gemini response validated successfully (${resp.text ? "active text returned" : "active status 200"})`,
+					latencyMs: Date.now() - startGemini,
+				};
+			}
+		} catch (err) {
 			results.gemini = {
 				status: "error",
-				message:
-					"GEMINI_API_KEY / GOOGLE_API_KEY not found in process environment",
-				latencyMs: 0,
-			};
-		} else {
-			const { GoogleGenAI } = await import("@google/genai");
-			const ai = new GoogleGenAI({ apiKey });
-			const resp = await ai.models.generateContent({
-				model: "gemini-2.5-flash",
-				contents: "ping",
-			});
-			results.gemini = {
-				status: "ok",
-				message: `Executable - Gemini response validated successfully (${resp.text ? "active text returned" : "active status 200"})`,
+				message: err instanceof Error ? err.message : String(err),
 				latencyMs: Date.now() - startGemini,
 			};
 		}
-	} catch (err) {
-		results.gemini = {
-			status: "error",
-			message: err instanceof Error ? err.message : String(err),
-			latencyMs: Date.now() - startGemini,
-		};
-	}
 
-	// 2. Ping Physical Lakehouse / Databricks Store
-	const startStore = Date.now();
-	try {
-		const { execFile } = await import("node:child_process");
-		const { promisify } = await import("node:util");
-		const execAsync = promisify(execFile);
+		// 2. Ping Physical Lakehouse / Databricks Store
+		const startStore = Date.now();
+		try {
+			const { execFile } = await import("node:child_process");
+			const { promisify } = await import("node:util");
+			const execAsync = promisify(execFile);
 
-		const script = `
+			const script = `
 import sys, json
 sys.path.insert(0, 'agent')
 from databricks_store import get_store
@@ -1340,21 +1348,22 @@ store = get_store()
 skills = store.list_skills(limit=5)
 print(json.dumps({'count': len(skills), 'store_type': type(store).__name__}))
 `;
-		const pythonPath = process.env.PYTHON_PATH || "python3";
-		const { stdout } = await execAsync(pythonPath, ["-c", script]);
-		const parsed = JSON.parse(stdout.trim());
-		results.lakehouseStore = {
-			status: "ok",
-			message: `Executable - Physical Lakehouse Store (${parsed.store_type}) active with ${parsed.count} records`,
-			latencyMs: Date.now() - startStore,
-		};
-	} catch (err) {
-		results.lakehouseStore = {
-			status: "error",
-			message: err instanceof Error ? err.message : String(err),
-			latencyMs: Date.now() - startStore,
-		};
-	}
+			const pythonPath = process.env.PYTHON_PATH || "python3";
+			const { stdout } = await execAsync(pythonPath, ["-c", script]);
+			const parsed = JSON.parse(stdout.trim());
+			results.lakehouseStore = {
+				status: "ok",
+				message: `Executable - Physical Lakehouse Store (${parsed.store_type}) active with ${parsed.count} records`,
+				latencyMs: Date.now() - startStore,
+			};
+		} catch (err) {
+			results.lakehouseStore = {
+				status: "error",
+				message: err instanceof Error ? err.message : String(err),
+				latencyMs: Date.now() - startStore,
+			};
+		}
 
-	return results;
-});
+		return results;
+	},
+);

@@ -5,18 +5,21 @@ import {
 	useAuth as useClerkAuth,
 	useUser as useClerkUser,
 } from "@clerk/tanstack-react-start";
-import * as React from "react";
 import { dark } from "@clerk/themes";
+import * as React from "react";
 import { useTheme } from "../layout/ThemeContext";
 
 // Detect if a valid Clerk Publishable Key is provided
 const DEFAULT_PUBLISHABLE_KEY =
 	(typeof process !== "undefined" && process.env?.VITE_CLERK_PUBLISHABLE_KEY) ||
-	(typeof import.meta !== "undefined" && import.meta.env?.VITE_CLERK_PUBLISHABLE_KEY) ||
+	(typeof import.meta !== "undefined" &&
+		import.meta.env?.VITE_CLERK_PUBLISHABLE_KEY) ||
 	"";
 
 // Context to check if Clerk is initialized with a valid key
-const ClerkActiveContext = React.createContext<boolean>(Boolean(DEFAULT_PUBLISHABLE_KEY));
+const ClerkActiveContext = React.createContext<boolean>(
+	Boolean(DEFAULT_PUBLISHABLE_KEY),
+);
 
 class InnerClerkErrorBoundary extends React.Component<
 	{ children: React.ReactNode; fallback: React.ReactNode },
@@ -32,7 +35,11 @@ class InnerClerkErrorBoundary extends React.Component<
 	}
 
 	componentDidCatch(error: Error, info: React.ErrorInfo) {
-		console.warn("ClerkProvider failed, falling back to Guest mode:", error, info);
+		console.warn(
+			"ClerkProvider failed, falling back to Guest mode:",
+			error,
+			info,
+		);
 	}
 
 	render() {
@@ -198,4 +205,3 @@ export function UserButton(props: any) {
 	}
 	return <ClerkUserButton {...props} />;
 }
-

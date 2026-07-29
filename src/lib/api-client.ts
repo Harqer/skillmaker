@@ -1,4 +1,7 @@
-const FASTAPI_URL = process.env.FASTAPI_URL || process.env.VITE_FASTAPI_URL || "http://localhost:8000";
+const FASTAPI_URL =
+	process.env.FASTAPI_URL ||
+	process.env.VITE_FASTAPI_URL ||
+	"http://localhost:8000";
 
 interface ApiError {
 	error: string;
@@ -14,7 +17,7 @@ async function apiPost<T>(
 			"Content-Type": "application/json",
 		};
 		if (authToken) {
-			headers["Authorization"] = `Bearer ${authToken}`;
+			headers.Authorization = `Bearer ${authToken}`;
 		}
 		const res = await fetch(`${FASTAPI_URL}${path}`, {
 			method: "POST",
@@ -42,7 +45,7 @@ async function apiGet<T>(
 	try {
 		const headers: Record<string, string> = {};
 		if (authToken) {
-			headers["Authorization"] = `Bearer ${authToken}`;
+			headers.Authorization = `Bearer ${authToken}`;
 		}
 		const res = await fetch(`${FASTAPI_URL}${path}`, { headers });
 		if (!res.ok) {
@@ -139,10 +142,7 @@ export async function getSkillRequest(
 	dbId: number,
 	authToken?: string,
 ): Promise<SkillRequestResponse & { error?: string }> {
-	return apiGet<SkillRequestResponse>(
-		`/api/skill_request/${dbId}`,
-		authToken,
-	);
+	return apiGet<SkillRequestResponse>(`/api/skill_request/${dbId}`, authToken);
 }
 
 export async function evaluateSkill(

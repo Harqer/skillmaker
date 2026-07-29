@@ -9,49 +9,59 @@ Replaces the previous stub implementation.  Uses RedisVL (redisvl) to:
 Index schema is kept simple and flat — one index per deployment, filtering
 by skill_id at query time using a tag field.
 """
+
 from __future__ import annotations
 
 import json
 import uuid
-from typing import List, Optional
 
+from config import (  # noqa: F401 — GOOGLE_API_KEY set by config
+    GEMINI_API_KEY,
+    REDIS_URI,
+)
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from redisvl.index import SearchIndex
 from redisvl.query import VectorQuery
 from redisvl.schema import IndexSchema
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
-from config import REDIS_URI, GEMINI_API_KEY  # noqa: F401 — GOOGLE_API_KEY set by config
-
 
 # ── Index schema ──────────────────────────────────────────────────────────────
 
-SCHEMA = IndexSchema.from_dict({
-    "index": {
-        "name": "skill_chunks",
-        "prefix": "skill_chunk",
-        "storage_type": "json",
-    },
-    "fields": [
-        {"name": "id",       "type": "tag"},
-        {"name": "skill_id", "type": "tag"},
-        {"name": "header",   "type": "text"},
-        {"name": "content",  "type": "text"},
-        {"name": "embedding", "type": "vector", "attrs": {
-            "dims": 768,
-            "distance_metric": "cosine",
-            "algorithm": "hnsw",
-            "datatype": "float32",
-        }},
-    ],
-})
+SCHEMA = IndexSchema.from_dict(
+    {
+        "index": {
+            "name": "skill_chunks",
+            "prefix": "skill_chunk",
+            "storage_type": "json",
+        },
+        "fields": [
+            {"name": "id", "type": "tag"},
+            {"name": "skill_id", "type": "tag"},
+            {"name": "header", "type": "text"},
+            {"name": "content", "type": "text"},
+            {
+                "name": "embedding",
+                "type": "vector",
+                "attrs": {
+                    "dims": 768,
+                    "distance_metric": "cosine",
+                    "algorithm": "hnsw",
+                    "datatype": "float32",
+                },
+            },
+        ],
+    }
+)
 
 
 # ── Embeddings model ──────────────────────────────────────────────────────────
+
 
 def _get_embeddings() -> GoogleGenerativeAIEmbeddings:
     return GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
 
 
 # ── Public client ─────────────────────────────────────────────────────────────
+
 
 class SkillVectorStore:
     """
@@ -64,7 +74,7 @@ class SkillVectorStore:
     """
 
     def __init__(self):
-        self._index: Optional[SearchIndex] = None
+        self._index: SearchIndex | None = None
         self._embeddings = _get_embeddings()
 
     def _get_index(self) -> SearchIndex:
@@ -87,8 +97,8 @@ class SkillVectorStore:
 
         splitter = MarkdownHeaderTextSplitter(
             headers_to_split_on=[
-                ("#",   "h1"),
-                ("##",  "h2"),
+                ("#", "h1"),
+                ("##", "h2"),
                 ("###", "h3"),
             ],
             strip_headers=False,
@@ -108,10 +118,10 @@ class SkillVectorStore:
         index = self._get_index()
         records = [
             {
-                "id":        str(uuid.uuid4()),
-                "skill_id":  skill_id,
-                "header":    headers[i],
-                "content":   texts[i],
+                "id": str(uuid.uuid4()),
+                "skill_id": skill_id,
+                "header": headers[i],
+                "content": texts[i],
                 "embedding": embeddings[i],
             }
             for i in range(len(texts))
@@ -121,7 +131,13 @@ class SkillVectorStore:
 
     # ── Retrieval ─────────────────────────────────────────────────────────────
 
-    def search_dynamic(self, query: str, skill_id: Optional[str] = None, score_threshold: float = 0.5, num_results: int = 20) -> List[dict]:
+    def search_dynamic(
+        self,
+        query: str,
+        skill_id: str | None = None,
+        score_threshold: float = 0.5,
+        num_results: int = 20,
+    ) -> list[dict]:
         """
         Finds semantically relevant chunks dynamically using a similarity threshold (distance).
         No hardcoded limit of results — uses num_results parameter (default 20).
@@ -140,45 +156,48 @@ class SkillVectorStore:
 
         index = self._get_index()
         results = index.query(vq)
-        
+
         filtered = []
         for r in results:
             dist = float(r.get("vector_distance", 1.0))
             # HNSW Cosine distance is [0, 2], lower means more similar
             if dist <= score_threshold:
-                filtered.append({
-                    "skill_id": r.get("skill_id"),
-                    "header":   r.get("header"),
-                    "content":  r.get("content"),
-                    "score":    dist,
-                })
+                filtered.append(
+                    {
+                        "skill_id": r.get("skill_id"),
+                        "header": r.get("header"),
+                        "content": r.get("content"),
+                        "score": dist,
+                    }
+                )
         return filtered
 
-    def get_langchain_retriever(self, index_name: str = "skill_chunks", score_threshold: float = 0.5):
+    def get_langchain_retriever(
+        self, index_name: str = "skill_chunks", score_threshold: float = 0.5
+    ):
         """
         Returns a LangChain VectorStoreRetriever with similarity score threshold filtering
         conforming exactly to standard LangChain guidelines.
         """
         from langchain_community.vectorstores import Redis as LangChainRedis
+
         try:
             # Parallel Redis connection for LangChain retriever compatibility.
             # The existing SearchIndex handles ingestion/query directly;
             # LangChain's Redis wrapper provides a standard LangChain
             # VectorStoreRetriever interface for framework interop.
             vector_store = LangChainRedis.from_existing_index(
-                embedding=self._embeddings,
-                index_name=index_name,
-                redis_url=REDIS_URI
+                embedding=self._embeddings, index_name=index_name, redis_url=REDIS_URI
             )
             return vector_store.as_retriever(
                 search_type="similarity_score_threshold",
-                search_kwargs={"score_threshold": score_threshold}
+                search_kwargs={"score_threshold": score_threshold},
             )
         except Exception as e:
             print(f"[SkillVectorStore] LangChain retriever construction fallback: {e}")
             return None
 
-    def search(self, query: str, skill_id: Optional[str] = None, k: int = 3) -> List[dict]:
+    def search(self, query: str, skill_id: str | None = None, k: int = 3) -> list[dict]:
         """
         Finds the k most semantically relevant chunks for the given query.
         Optionally filter to a specific skill by skill_id tag.
@@ -202,9 +221,9 @@ class SkillVectorStore:
         return [
             {
                 "skill_id": r.get("skill_id"),
-                "header":   r.get("header"),
-                "content":  r.get("content"),
-                "score":    float(r.get("vector_distance", 1.0)),
+                "header": r.get("header"),
+                "content": r.get("content"),
+                "score": float(r.get("vector_distance", 1.0)),
             }
             for r in results
         ]
@@ -213,6 +232,7 @@ class SkillVectorStore:
 # ── Backwards-compat shim (used by context_retriever.py) ─────────────────────
 # context_retriever.py imports UnifiedClient; keep the name but wire it to
 # SkillVectorStore so existing callers don't break.
+
 
 class UnifiedClient:
     """Thin async context-manager wrapper around SkillVectorStore."""

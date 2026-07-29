@@ -325,11 +325,7 @@ function SkillDetailPage() {
 								Full Bundle
 							</Button>
 							{skill.traceUrl && (
-								<a
-									href={skill.traceUrl}
-									target="_blank"
-									rel="noreferrer"
-								>
+								<a href={skill.traceUrl} target="_blank" rel="noreferrer">
 									<Button
 										size="sm"
 										variant="ghost"

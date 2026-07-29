@@ -1,5 +1,6 @@
 import os
 import sys
+
 from sqlmodel import Session
 
 # Ensure the agent directory is on the path and secrets are loaded from Infisical env
@@ -10,7 +11,15 @@ from db import engine
 from db_models import SkillRequest
 from orchestrator import run_orchestrator as run_agent
 
-def process_skill_request(db_id: int, thread_id: str, user_id: str, urls: str | list[str], prompt: str, include_mcp: bool):
+
+def process_skill_request(
+    db_id: int,
+    thread_id: str,
+    user_id: str,
+    urls: str | list[str],
+    prompt: str,
+    include_mcp: bool,
+):
     """
     RQ worker function.
     Accepts one or more URLs, bulk-scrapes all of them, stores every markdown
@@ -32,8 +41,15 @@ def process_skill_request(db_id: int, thread_id: str, user_id: str, urls: str | 
             session.commit()
 
         # Run the LangGraph orchestrator with ALL urls for bulk scrape.
-        result = run_agent(urls, prompt, include_mcp=include_mcp, thread_id=thread_id, user_id=user_id, db_id=db_id)
-        
+        result = run_agent(
+            urls,
+            prompt,
+            include_mcp=include_mcp,
+            thread_id=thread_id,
+            user_id=user_id,
+            db_id=db_id,
+        )
+
         # Mark as completed
         with Session(engine) as session:
             req = session.get(SkillRequest, db_id)
@@ -45,12 +61,15 @@ def process_skill_request(db_id: int, thread_id: str, user_id: str, urls: str | 
                 req.trace_url = result.get("trace_url")
                 session.add(req)
                 session.commit()
-                print(f"Successfully processed request {db_id} ({len(urls)} URLs scraped)")
-                
+                print(
+                    f"Successfully processed request {db_id} ({len(urls)} URLs scraped)"
+                )
+
                 # Register skill in SkillOpt for evaluation and refinement.
                 # Pass the scraped markdown so SkillOpt can build real training
                 # items from the documentation instead of dummy answers.
                 from skillopt_integration import register_skill_for_skillopt
+
                 register_skill_for_skillopt(
                     db_id=db_id,
                     skill_content=req.skill_content,
@@ -61,6 +80,7 @@ def process_skill_request(db_id: int, thread_id: str, user_id: str, urls: str | 
 
     except Exception as e:
         import traceback
+
         traceback.print_exc()
         # Mark as failed
         with Session(engine) as session:

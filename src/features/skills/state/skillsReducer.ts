@@ -1,7 +1,4 @@
-import type {
-	SkillsAction,
-	SkillsState,
-} from "@/features/skills/types";
+import type { SkillsAction, SkillsState } from "@/features/skills/types";
 
 export const initialSkillsState: SkillsState = {
 	status: "idle",
@@ -103,4 +100,3 @@ export function skillsReducer(
 			return state;
 	}
 }
-

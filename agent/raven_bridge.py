@@ -17,8 +17,6 @@ import sys
 import tempfile
 import textwrap
 import time
-from pathlib import Path
-from typing import Optional
 
 # ── Circuit breaker constants ─────────────────────────────────────────────
 
@@ -28,7 +26,7 @@ REQUIRED_EVE_FILES = {"instructions.md", "skills/SKILL.md"}
 
 # ── Raven availability check ──────────────────────────────────────────────
 
-_RAVEN_AVAILABLE: Optional[bool] = None
+_RAVEN_AVAILABLE: bool | None = None
 
 
 def is_raven_available() -> bool:
@@ -38,14 +36,18 @@ def is_raven_available() -> bool:
     try:
         result = subprocess.run(
             [sys.executable, "-m", "raven", "--help"],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True,
+            text=True,
+            timeout=15,
             env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
         _RAVEN_AVAILABLE = result.returncode == 0
     except (subprocess.TimeoutExpired, FileNotFoundError, Exception):
         _RAVEN_AVAILABLE = False
     if not _RAVEN_AVAILABLE:
-        print("[raven_bridge] Raven not available. Install with: pip install -e /path/to/Raven")
+        print(
+            "[raven_bridge] Raven not available. Install with: pip install -e /path/to/Raven"
+        )
     return _RAVEN_AVAILABLE
 
 
@@ -83,10 +85,10 @@ def verify_skill_bundle(eve_files: dict) -> tuple[bool, list[str]]:
             if path.startswith("subagents/") and "max_iterations" not in content:
                 issues.append(f"{path} missing max_iterations bound")
 
-    if "mcp/" in str(list(eve_files.keys())) or "scripts/" in str(list(eve_files.keys())):
-        has_script = any(
-            k.startswith("mcp/") or k.startswith("scripts/") for k in eve_files
-        )
+    if "mcp/" in str(list(eve_files.keys())) or "scripts/" in str(
+        list(eve_files.keys())
+    ):
+        has_script = any(k.startswith(("mcp/", "scripts/")) for k in eve_files)
         has_config = "config.json" in eve_files
         if has_script and not has_config:
             issues.append("MCP script present but config.json missing")
@@ -104,7 +106,9 @@ def _build_research_brief(
     include_mcp: bool,
 ) -> str:
     """Build a structured research brief for Raven's deep research agent."""
-    truncated = markdown_corpus[:80000] if len(markdown_corpus) > 80000 else markdown_corpus
+    truncated = (
+        markdown_corpus[:80000] if len(markdown_corpus) > 80000 else markdown_corpus
+    )
     summary_note = ""
     if len(markdown_corpus) > 80000:
         summary_note = (
@@ -186,13 +190,19 @@ def generate_skill_with_raven(
                 "eve_files": {},
                 "skill_content": "",
                 "attempt_count": attempt - 1,
-                "issues": [f"Circuit breaker tripped after {VERIFIER_CIRCUIT_BREAKER_SECONDS}s"],
+                "issues": [
+                    f"Circuit breaker tripped after {VERIFIER_CIRCUIT_BREAKER_SECONDS}s"
+                ],
                 "error": f"Circuit breaker: exceeded {VERIFIER_CIRCUIT_BREAKER_SECONDS}s timeout",
             }
 
-        print(f"[raven_bridge] Generation attempt {attempt}/{MAX_GENERATION_ATTEMPTS} ...")
+        print(
+            f"[raven_bridge] Generation attempt {attempt}/{MAX_GENERATION_ATTEMPTS} ..."
+        )
 
-        brief = _build_research_brief(markdown_corpus, target_url, task_prompt, include_mcp)
+        brief = _build_research_brief(
+            markdown_corpus, target_url, task_prompt, include_mcp
+        )
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".md", delete=False, encoding="utf-8"
@@ -209,7 +219,9 @@ def generate_skill_with_raven(
             }
             result = subprocess.run(
                 [sys.executable, "-m", "raven", "agent", "-m", brief],
-                capture_output=True, text=True, timeout=120,
+                capture_output=True,
+                text=True,
+                timeout=120,
                 env=raven_env,
             )
 
@@ -217,7 +229,9 @@ def generate_skill_with_raven(
             raven_error = result.stderr or ""
 
             if result.returncode != 0:
-                last_error = f"Raven exited with code {result.returncode}: {raven_error[:500]}"
+                last_error = (
+                    f"Raven exited with code {result.returncode}: {raven_error[:500]}"
+                )
                 print(f"[raven_bridge] Raven attempt {attempt} failed: {last_error}")
                 continue
 
@@ -244,7 +258,7 @@ def generate_skill_with_raven(
                 print(f"[raven_bridge] Verifier failed attempt {attempt}: {issues}")
                 context_hint = (
                     "\n\n## Previous attempt feedback\n"
-                    f"The verifier found these issues with your last output:\n"
+                    "The verifier found these issues with your last output:\n"
                     + "\n".join(f"- {i}" for i in issues)
                 )
                 task_prompt += context_hint
@@ -291,7 +305,7 @@ def _extract_eve_from_raven_output(output: str) -> dict:
     block_lines = []
     for line in lines:
         stripped = line.strip()
-        if stripped.startswith("```json") or stripped.startswith("```"):
+        if stripped.startswith(("```json", "```")):
             if in_block:
                 in_block = False
                 json_block = "\n".join(block_lines)
@@ -327,9 +341,7 @@ def _normalize_eve_files(files: dict) -> dict:
     for key, value in files.items():
         if isinstance(value, str):
             normalized[str(key)] = value
-        elif isinstance(value, dict):
-            normalized[str(key)] = json.dumps(value, indent=2)
-        elif isinstance(value, list):
+        elif isinstance(value, (dict, list)):
             normalized[str(key)] = json.dumps(value, indent=2)
         else:
             normalized[str(key)] = str(value) if value is not None else ""
@@ -350,12 +362,18 @@ def generate_skill_card_with_raven(
         dict with skill_content (JSON string) and folder_name.
     """
     target_url = state.get("target_url", "")
-    task_prompt = state.get("task_prompt", "Generate a comprehensive domain expert EVE skill bundle.")
+    task_prompt = state.get(
+        "task_prompt", "Generate a comprehensive domain expert EVE skill bundle."
+    )
     include_mcp = state.get("include_mcp", False)
-    folder_name = (target_url.split("/")[-1] or "custom-skill").replace(".", "-").lower()
+    folder_name = (
+        (target_url.split("/")[-1] or "custom-skill").replace(".", "-").lower()
+    )
 
     if not is_raven_available():
-        print("[raven_bridge] Raven unavailable — falling through to Gemini codegen path")
+        print(
+            "[raven_bridge] Raven unavailable — falling through to Gemini codegen path"
+        )
         return {
             "skill_content": "",
             "folder_name": folder_name,
@@ -370,13 +388,17 @@ def generate_skill_card_with_raven(
     )
 
     if result["success"]:
-        print(f"[raven_bridge] Raven generated EVE bundle in {result['attempt_count']} attempt(s)")
+        print(
+            f"[raven_bridge] Raven generated EVE bundle in {result['attempt_count']} attempt(s)"
+        )
         return {
             "skill_content": result["skill_content"],
             "folder_name": folder_name,
         }
 
-    print(f"[raven_bridge] Raven generation failed after {result['attempt_count']} attempts: {result.get('error', 'unknown')}")
+    print(
+        f"[raven_bridge] Raven generation failed after {result['attempt_count']} attempts: {result.get('error', 'unknown')}"
+    )
     return {
         "skill_content": "",
         "folder_name": folder_name,
@@ -385,8 +407,8 @@ def generate_skill_card_with_raven(
 
 
 __all__ = [
-    "is_raven_available",
-    "generate_skill_with_raven",
     "generate_skill_card_with_raven",
+    "generate_skill_with_raven",
+    "is_raven_available",
     "verify_skill_bundle",
 ]

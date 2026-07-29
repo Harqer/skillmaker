@@ -61,8 +61,14 @@ export interface SkillsState {
 
 export type SkillsAction =
 	| { type: "START_COMPILATION" }
-	| { type: "SET_POLLING_ID"; payload: { dbId: number; partitionNode?: string; cacheHit?: boolean } }
-	| { type: "UPDATE_POLLING_STATUS"; payload: { statusText: string; telemetry?: ArchitectureTelemetry } }
+	| {
+			type: "SET_POLLING_ID";
+			payload: { dbId: number; partitionNode?: string; cacheHit?: boolean };
+	  }
+	| {
+			type: "UPDATE_POLLING_STATUS";
+			payload: { statusText: string; telemetry?: ArchitectureTelemetry };
+	  }
 	| { type: "SET_BATCH_COMPILATION"; payload: BatchItem[] }
 	| { type: "COMPILATION_SUCCESS"; payload: Skill }
 	| { type: "COMPILATION_FAILURE"; payload: string }
@@ -70,4 +76,3 @@ export type SkillsAction =
 	| { type: "SEEDING_COMPLETE" }
 	| { type: "CLEAR_ERROR" }
 	| { type: "RESET_COMPILATION" };
-

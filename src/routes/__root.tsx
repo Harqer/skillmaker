@@ -7,11 +7,9 @@ import {
 	Scripts,
 	useRouter,
 } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import posthog from "posthog-js";
 import { useEffect } from "react";
-import { useServerFn } from "@tanstack/react-start";
-import { syncClerkUser } from "@/server/skills";
-import { ThemeProvider } from "@/components/layout/ThemeContext";
 import {
 	SafeClerkProvider,
 	SignedIn,
@@ -22,7 +20,9 @@ import {
 } from "@/components/auth/ClerkHelpers";
 import { ClerkErrorBoundary } from "@/components/ErrorBoundary";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { ThemeProvider } from "@/components/layout/ThemeContext";
 import { Button } from "@/components/ui/button";
+import { syncClerkUser } from "@/server/skills";
 
 // Safe memory storage fallback helper for sandboxed iframe environments
 const memoryStorage = (() => {
@@ -191,7 +191,10 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 									<div className="flex flex-col flex-1 overflow-y-auto">
 										<header className="p-8 pb-0">
 											<div className="flex items-center justify-between">
-												<Link to="/" className="flex items-center gap-3 group hover:opacity-90 transition-opacity cursor-pointer z-20">
+												<Link
+													to="/"
+													className="flex items-center gap-3 group hover:opacity-90 transition-opacity cursor-pointer z-20"
+												>
 													<img
 														src="/peacock_logo.jpg"
 														alt="Raven Peacock Logo"

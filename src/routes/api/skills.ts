@@ -7,12 +7,15 @@ export const Route = createFileRoute("/api/skills")({
 			GET: async () => {
 				try {
 					const skillsList = await getSkills({ data: undefined });
-					return new Response(JSON.stringify({ success: true, data: skillsList }), {
-						status: 200,
-						headers: {
-							"Content-Type": "application/json",
+					return new Response(
+						JSON.stringify({ success: true, data: skillsList }),
+						{
+							status: 200,
+							headers: {
+								"Content-Type": "application/json",
+							},
 						},
-					});
+					);
 				} catch (err: unknown) {
 					const msg = err instanceof Error ? err.message : String(err);
 					return new Response(JSON.stringify({ success: false, error: msg }), {

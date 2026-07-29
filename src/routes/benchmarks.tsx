@@ -169,8 +169,12 @@ function BenchmarksPage() {
 	const triggerSkillOptFn = useServerFn(triggerSkillOptOptimization);
 	const getSkillOptStatusFn = useServerFn(getSkillOptStatus);
 	const [isSkillOptRunning, setIsSkillOptRunning] = useState<boolean>(false);
-	const [skillOptStatus, setSkillOptStatus] = useState<SkillOptStatus | null>(null);
-	const [skillOptResult, setSkillOptResult] = useState<SkillOptResult | null>(null);
+	const [skillOptStatus, setSkillOptStatus] = useState<SkillOptStatus | null>(
+		null,
+	);
+	const [skillOptResult, setSkillOptResult] = useState<SkillOptResult | null>(
+		null,
+	);
 
 	// Fetch SkillOpt status when selected skill changes
 	useEffect(() => {
@@ -276,7 +280,8 @@ function BenchmarksPage() {
 					Skill Performance & Benchmarking
 				</h1>
 				<p className="text-muted-foreground font-sans">
-					Evaluate skill accuracy, instruction-following, token efficiency, and response quality across test scenarios.
+					Evaluate skill accuracy, instruction-following, token efficiency, and
+					response quality across test scenarios.
 				</p>
 			</div>
 
@@ -525,7 +530,14 @@ function BenchmarksPage() {
 													Token Efficiency Rate
 												</span>
 												<span className="font-bold text-emerald-600 dark:text-emerald-400 font-mono text-sm">
-													{Math.max(45, Math.min(85, Math.round(evaluationResult.score * 0.8)))}% Token Savings
+													{Math.max(
+														45,
+														Math.min(
+															85,
+															Math.round(evaluationResult.score * 0.8),
+														),
+													)}
+													% Token Savings
 												</span>
 											</div>
 											<div className="p-3 rounded-lg bg-background/80 border border-border/50 space-y-1">
@@ -541,7 +553,9 @@ function BenchmarksPage() {
 													Prompt Context Overhead
 												</span>
 												<span className="font-bold text-foreground font-mono text-sm">
-													~{Math.round(220 + (100 - evaluationResult.score) * 3)} tokens
+													~
+													{Math.round(220 + (100 - evaluationResult.score) * 3)}{" "}
+													tokens
 												</span>
 											</div>
 											<div className="p-3 rounded-lg bg-background/80 border border-border/50 space-y-1">
@@ -626,7 +640,8 @@ function BenchmarksPage() {
 								)}
 							</div>
 							<CardDescription className="font-sans text-xs">
-								Automated sleep cycles harvest evidence, mine rules, replay benchmarks, and gate skill updates.
+								Automated sleep cycles harvest evidence, mine rules, replay
+								benchmarks, and gate skill updates.
 							</CardDescription>
 						</CardHeader>
 						<CardContent className="pt-4 space-y-4">
@@ -644,7 +659,9 @@ function BenchmarksPage() {
 										Optimized State
 									</span>
 									<span className="font-mono text-sm font-bold text-foreground">
-										{skillOptStatus?.has_optimized_output ? "Best Version Active" : "Initial Draft"}
+										{skillOptStatus?.has_optimized_output
+											? "Best Version Active"
+											: "Initial Draft"}
 									</span>
 								</div>
 							</div>
@@ -675,39 +692,78 @@ function BenchmarksPage() {
 											<Sparkles className="w-4 h-4" /> SkillOpt Cycle Result
 										</span>
 										<span className="uppercase text-[10px] font-bold px-2 py-0.5 rounded bg-primary/10 text-primary border border-primary/20 font-mono">
-											{skillOptResult?.status || (skillOptStatus?.has_optimized_output ? "OPTIMIZED" : "IDLE")}
+											{skillOptResult?.status ||
+												(skillOptStatus?.has_optimized_output
+													? "OPTIMIZED"
+													: "IDLE")}
 										</span>
 									</div>
-									{(skillOptResult?.status === "completed" || skillOptStatus?.has_optimized_output) ? (
+									{skillOptResult?.status === "completed" ||
+									skillOptStatus?.has_optimized_output ? (
 										<div className="space-y-2 text-foreground/90 text-xs">
-											{(skillOptResult?.score_before || skillOptStatus?.score_before) && (
+											{(skillOptResult?.score_before ||
+												skillOptStatus?.score_before) && (
 												<div className="flex items-center justify-between p-2 rounded bg-background border border-border/50 font-mono">
-													<span className="text-muted-foreground">Accuracy Score Growth:</span>
+													<span className="text-muted-foreground">
+														Accuracy Score Growth:
+													</span>
 													<span className="font-bold text-emerald-600 dark:text-emerald-400">
-														{skillOptResult?.score_before || skillOptStatus?.score_before}% → {skillOptResult?.score_after || skillOptStatus?.score_after || 96}%
+														{skillOptResult?.score_before ||
+															skillOptStatus?.score_before}
+														% →{" "}
+														{skillOptResult?.score_after ||
+															skillOptStatus?.score_after ||
+															96}
+														%
 													</span>
 												</div>
 											)}
 											<div className="grid grid-cols-2 gap-2 text-[11px] font-mono">
 												<div className="p-2 rounded bg-background border border-border/50">
-													<span className="text-muted-foreground block text-[10px]">EVE Rules Adopted</span>
-													<span className="font-bold text-primary">{skillOptResult?.adopted_count || skillOptStatus?.adopted_count || 4} new rules</span>
+													<span className="text-muted-foreground block text-[10px]">
+														EVE Rules Adopted
+													</span>
+													<span className="font-bold text-primary">
+														{skillOptResult?.adopted_count ||
+															skillOptStatus?.adopted_count ||
+															4}{" "}
+														new rules
+													</span>
 												</div>
 												<div className="p-2 rounded bg-background border border-border/50">
-													<span className="text-muted-foreground block text-[10px]">Candidates Evaluated</span>
-													<span className="font-bold text-foreground">{skillOptResult?.staged_count || skillOptStatus?.staged_count || 3} trajectories</span>
+													<span className="text-muted-foreground block text-[10px]">
+														Candidates Evaluated
+													</span>
+													<span className="font-bold text-foreground">
+														{skillOptResult?.staged_count ||
+															skillOptStatus?.staged_count ||
+															3}{" "}
+														trajectories
+													</span>
 												</div>
 											</div>
 
-											{((skillOptResult?.trajectory_insights && skillOptResult.trajectory_insights.length > 0) || (skillOptStatus?.trajectory_insights && skillOptStatus.trajectory_insights.length > 0)) && (
+											{((skillOptResult?.trajectory_insights &&
+												skillOptResult.trajectory_insights.length > 0) ||
+												(skillOptStatus?.trajectory_insights &&
+													skillOptStatus.trajectory_insights.length > 0)) && (
 												<div className="space-y-1 pt-1">
 													<span className="text-[11px] font-bold text-muted-foreground uppercase font-mono block">
 														Trajectory Mining Insights:
 													</span>
 													<ul className="space-y-1 text-[11px] text-muted-foreground">
-														{(skillOptResult?.trajectory_insights || skillOptStatus?.trajectory_insights || []).map((insight) => (
-															<li key={insight} className="flex items-start gap-1.5">
-																<span className="text-primary font-bold">•</span>
+														{(
+															skillOptResult?.trajectory_insights ||
+															skillOptStatus?.trajectory_insights ||
+															[]
+														).map((insight) => (
+															<li
+																key={insight}
+																className="flex items-start gap-1.5"
+															>
+																<span className="text-primary font-bold">
+																	•
+																</span>
 																<span>{insight}</span>
 															</li>
 														))}
@@ -727,7 +783,9 @@ function BenchmarksPage() {
 										</div>
 									) : (
 										<p className="text-destructive text-[11px] font-mono">
-											{skillOptResult?.reason || skillOptResult?.error || "Cycle pending or unavailable"}
+											{skillOptResult?.reason ||
+												skillOptResult?.error ||
+												"Cycle pending or unavailable"}
 										</p>
 									)}
 								</div>
@@ -739,4 +797,3 @@ function BenchmarksPage() {
 		</div>
 	);
 }
-

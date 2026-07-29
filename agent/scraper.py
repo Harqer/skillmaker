@@ -24,29 +24,36 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 import requests
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
-
-from config import SIMPLESCRAPER_API_KEY, FIRECRAWL_API_KEY, JINA_API_KEY
+from config import FIRECRAWL_API_KEY, JINA_API_KEY, SIMPLESCRAPER_API_KEY
+from tenacity import (
+    retry,
+    retry_if_exception_type,
+    stop_after_attempt,
+    wait_exponential,
+)
 
 # ── Constants ─────────────────────────────────────────────────────────────────
 
 _SIMPLESCRAPER_EXTRACT = "https://api.simplescraper.io/v1/extract"
-_FIRECRAWL_SCRAPE      = "https://api.firecrawl.dev/v1/scrape"
-_FIRECRAWL_CRAWL       = "https://api.firecrawl.dev/v1/crawl"
-_FIRECRAWL_CRAWL_GET   = "https://api.firecrawl.dev/v1/crawl/{job_id}"
+_FIRECRAWL_SCRAPE = "https://api.firecrawl.dev/v1/scrape"
+_FIRECRAWL_CRAWL = "https://api.firecrawl.dev/v1/crawl"
+_FIRECRAWL_CRAWL_GET = "https://api.firecrawl.dev/v1/crawl/{job_id}"
 
-_CRAWL_POLL_INTERVAL  = 3       # seconds between status checks
-_CRAWL_MAX_WAIT       = 120     # seconds before giving up on crawl job
-_CRAWL_MAX_PAGES      = 30      # cap pages to avoid massive context windows
-_REQUEST_TIMEOUT      = 60      # seconds for all HTTP calls
+_CRAWL_POLL_INTERVAL = 3  # seconds between status checks
+_CRAWL_MAX_WAIT = 120  # seconds before giving up on crawl job
+_CRAWL_MAX_PAGES = 30  # cap pages to avoid massive context windows
+_REQUEST_TIMEOUT = 60  # seconds for all HTTP calls
 
 
 # ── Layer 1: Jina Reader API ──────────────────────────────────────────────────
 
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((requests.exceptions.RequestException, requests.exceptions.Timeout)),
+    retry=retry_if_exception_type(
+        (requests.exceptions.RequestException, requests.exceptions.Timeout)
+    ),
 )
 def _scrape_jina_reader(url: str) -> str | None:
     """Single-page markdown extraction via Jina Reader API (https://r.jina.ai/)."""
@@ -72,10 +79,13 @@ def _scrape_jina_reader(url: str) -> str | None:
 
 # ── Layer 2: SimpleScraper /v1/extract ───────────────────────────────────────
 
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((requests.exceptions.RequestException, requests.exceptions.Timeout)),
+    retry=retry_if_exception_type(
+        (requests.exceptions.RequestException, requests.exceptions.Timeout)
+    ),
 )
 def _scrape_simplescraper(url: str) -> str | None:
     """Single-page extraction via SimpleScraper (primary)."""
@@ -108,10 +118,13 @@ def _scrape_simplescraper(url: str) -> str | None:
 
 # ── Layer 2: Firecrawl /v1/scrape (single page) ──────────────────────────────
 
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((requests.exceptions.RequestException, requests.exceptions.Timeout)),
+    retry=retry_if_exception_type(
+        (requests.exceptions.RequestException, requests.exceptions.Timeout)
+    ),
 )
 def _scrape_firecrawl_single(url: str) -> str | None:
     """Single-page markdown via Firecrawl /v1/scrape (first fallback)."""
@@ -141,10 +154,13 @@ def _scrape_firecrawl_single(url: str) -> str | None:
 
 # ── Layer 3: Firecrawl /v1/crawl (multi-page async) ──────────────────────────
 
+
 @retry(
     stop=stop_after_attempt(3),
     wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((requests.exceptions.RequestException, requests.exceptions.Timeout)),
+    retry=retry_if_exception_type(
+        (requests.exceptions.RequestException, requests.exceptions.Timeout)
+    ),
 )
 def _scrape_firecrawl_crawl(url: str) -> str | None:
     """
@@ -192,13 +208,17 @@ def _scrape_firecrawl_crawl(url: str) -> str | None:
         status_data = None
         for poll_attempt in range(3):
             try:
-                status_resp = requests.get(status_url, headers=headers, timeout=_REQUEST_TIMEOUT)
+                status_resp = requests.get(
+                    status_url, headers=headers, timeout=_REQUEST_TIMEOUT
+                )
                 status_resp.raise_for_status()
                 status_data = status_resp.json()
                 break
             except Exception as exc:
                 if poll_attempt < 2:
-                    print(f"[scraper] Firecrawl poll error (attempt {poll_attempt+1}/3): {exc}")
+                    print(
+                        f"[scraper] Firecrawl poll error (attempt {poll_attempt + 1}/3): {exc}"
+                    )
                     time.sleep(2)
                 else:
                     print(f"[scraper] Firecrawl poll error after 3 attempts: {exc}")
@@ -208,8 +228,10 @@ def _scrape_firecrawl_crawl(url: str) -> str | None:
             continue
 
         job_status = status_data.get("status", "")
-        print(f"[scraper] Firecrawl /crawl status: {job_status} "
-              f"({status_data.get('completed', 0)}/{status_data.get('total', '?')} pages)")
+        print(
+            f"[scraper] Firecrawl /crawl status: {job_status} "
+            f"({status_data.get('completed', 0)}/{status_data.get('total', '?')} pages)"
+        )
 
         if job_status == "completed":
             pages = status_data.get("data", [])
@@ -226,9 +248,9 @@ def _scrape_firecrawl_crawl(url: str) -> str | None:
     # 3. Aggregate all pages into one markdown document
     sections: list[str] = []
     for page in pages:
-        md   = page.get("markdown", "").strip()
+        md = page.get("markdown", "").strip()
         meta = page.get("metadata", {})
-        src  = meta.get("sourceURL") or meta.get("url", "")
+        src = meta.get("sourceURL") or meta.get("url", "")
         if md:
             header = f"## Page: {src}\n\n" if src else ""
             sections.append(header + md)
@@ -238,11 +260,14 @@ def _scrape_firecrawl_crawl(url: str) -> str | None:
         return None
 
     combined = "\n\n---\n\n".join(sections)
-    print(f"[scraper] Firecrawl /crawl ✓  ({len(pages)} pages, {len(combined):,} chars)")
+    print(
+        f"[scraper] Firecrawl /crawl ✓  ({len(pages)} pages, {len(combined):,} chars)"
+    )
     return combined
 
 
 # ── Public API ────────────────────────────────────────────────────────────────
+
 
 def scrape_docs(url: str) -> str:
     """
@@ -268,7 +293,12 @@ def scrape_docs(url: str) -> str:
         _scrape_firecrawl_crawl: "firecrawl_crawl",
     }
 
-    for scraper_fn in (_scrape_jina_reader, _scrape_simplescraper, _scrape_firecrawl_single, _scrape_firecrawl_crawl):
+    for scraper_fn in (
+        _scrape_jina_reader,
+        _scrape_simplescraper,
+        _scrape_firecrawl_single,
+        _scrape_firecrawl_crawl,
+    ):
         try:
             content = scraper_fn(url)
             if content:
@@ -310,8 +340,10 @@ def bulk_scrape_docs(urls: list[str], max_workers: int = 5) -> dict[str, str]:
             try:
                 url_out, md = future.result()
                 results[url_out] = md
-                print(f"[scraper] bulk done ({len(results)}/{len(urls)}): {url_out} "
-                      f"({len(md):,} chars)")
+                print(
+                    f"[scraper] bulk done ({len(results)}/{len(urls)}): {url_out} "
+                    f"({len(md):,} chars)"
+                )
             except Exception as exc:
                 results[u] = f"[scraper] bulk scrape failed for {u}: {exc}"
                 print(f"[scraper] bulk error for {u}: {exc}")
@@ -349,27 +381,43 @@ def scrape_docs_to_temp_store(url: str) -> dict:
     # Try each layer, record which succeeded
     content = _scrape_jina_reader(url)
     if content:
-        result.update(markdown=content, source="jina_reader",
-                      page_count=1, char_count=len(content))
+        result.update(
+            markdown=content,
+            source="jina_reader",
+            page_count=1,
+            char_count=len(content),
+        )
         return result
 
     content = _scrape_simplescraper(url)
     if content:
-        result.update(markdown=content, source="simplescraper",
-                      page_count=1, char_count=len(content))
+        result.update(
+            markdown=content,
+            source="simplescraper",
+            page_count=1,
+            char_count=len(content),
+        )
         return result
 
     content = _scrape_firecrawl_single(url)
     if content:
-        result.update(markdown=content, source="firecrawl_scrape",
-                      page_count=1, char_count=len(content))
+        result.update(
+            markdown=content,
+            source="firecrawl_scrape",
+            page_count=1,
+            char_count=len(content),
+        )
         return result
 
     content = _scrape_firecrawl_crawl(url)
     if content:
         page_count = content.count("## Page:") or 1
-        result.update(markdown=content, source="firecrawl_crawl",
-                      page_count=page_count, char_count=len(content))
+        result.update(
+            markdown=content,
+            source="firecrawl_crawl",
+            page_count=page_count,
+            char_count=len(content),
+        )
         return result
 
     result["markdown"] = (

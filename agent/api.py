@@ -1,9 +1,10 @@
 import os
 import sys
+
+import config  # noqa — sets env vars at import time
+from db import init_db
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from db import init_db
-import config  # noqa — sets env vars at import time
 
 # Ensure dependencies under current directory are importable
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -22,9 +23,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.on_event("startup")
 def on_startup():
     init_db()
+
 
 # Mount our clean Presentation/Controller routes
 app.include_router(router)

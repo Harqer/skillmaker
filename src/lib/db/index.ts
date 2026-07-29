@@ -8,7 +8,8 @@ export const inMemorySkills: any[] = [
 	{
 		id: "raven-1",
 		title: "Raven Autonomous Skill & SkillOpt Platform",
-		description: "Production EVE Skill Synthesis, Trajectory Mining, and SkillOpt Gated Optimization for AI Agents.",
+		description:
+			"Production EVE Skill Synthesis, Trajectory Mining, and SkillOpt Gated Optimization for AI Agents.",
 		content: JSON.stringify({
 			"instructions.md": `# Lead Agent Coordinator - Raven Platform
 You are the Lead Coordinator agent specializing in the Raven Skill Engine, Firecrawl ingestion, and SkillOpt optimization pipeline under the EVE specification.
@@ -62,14 +63,16 @@ async def synthesize_skill(source_url: str) -> str:
 				},
 			},
 		}),
-		traceUrl: "https://smith.langchain.com/o/raven-compiler/projects/p/raven-platform",
+		traceUrl:
+			"https://smith.langchain.com/o/raven-compiler/projects/p/raven-platform",
 		sourceUrl: "https://github.com/EverMind-AI/Raven.git",
 		createdAt: new Date().toISOString(),
 	},
 	{
 		id: "loop-eng-1",
 		title: "Loop Engineering Agentic Workflow Architecture",
-		description: "Production EVE Skill Bundle for Loop Engineering (Cobus Greyling), implementing reflective agent loops, multi-turn reasoning cycles, and trajectory evaluation.",
+		description:
+			"Production EVE Skill Bundle for Loop Engineering (Cobus Greyling), implementing reflective agent loops, multi-turn reasoning cycles, and trajectory evaluation.",
 		content: JSON.stringify({
 			"instructions.md": `# Lead Agent Coordinator - Loop Engineering
 You are the Lead Coordinator agent specializing in Loop Engineering (Cobus Greyling) compound agentic systems and reflective loop design under the EVE specification.
@@ -102,7 +105,13 @@ You are a principal AI agent developer specializing in Loop Engineering, Compoun
 2. **State Machine Bounding**: Guard against infinite recursion by maintaining step counters and state diff checks.
 3. **EVE Spec Compliance**: Standardize loop structures across instructions.md, subagents/, and rules/.`,
 		}),
-		tags: ["Loop Engineering", "Agentic Loops", "EVE", "Agent Workflows", "Cobus Greyling"],
+		tags: [
+			"Loop Engineering",
+			"Agentic Loops",
+			"EVE",
+			"Agent Workflows",
+			"Cobus Greyling",
+		],
 		authorId: "user_mock",
 		upvotes: 31,
 		mcpScript: `# Loop Engineering MCP Tool
@@ -122,15 +131,18 @@ async def execute_agent_loop(prompt: str, max_iterations: int = 5) -> str:
 				},
 			},
 		}),
-		traceUrl: "https://smith.langchain.com/o/raven-compiler/projects/p/loop-engineering",
+		traceUrl:
+			"https://smith.langchain.com/o/raven-compiler/projects/p/loop-engineering",
 		sourceUrl: "https://github.com/cobusgreyling/loop-engineering.git",
 		createdAt: new Date().toISOString(),
 	},
 	{
 		id: "bp-1",
 		title: "PostgreSQL Database Architect",
-		description: "Design production-ready database schemas, configure connection pools, and optimize query indexes.",
-		content: "You are a senior database optimization expert specializing in PostgreSQL and drizzle-orm.",
+		description:
+			"Design production-ready database schemas, configure connection pools, and optimize query indexes.",
+		content:
+			"You are a senior database optimization expert specializing in PostgreSQL and drizzle-orm.",
 		tags: ["Postgres", "Database", "Drizzle"],
 		authorId: "user_mock",
 		upvotes: 12,
@@ -139,8 +151,10 @@ async def execute_agent_loop(prompt: str, max_iterations: int = 5) -> str:
 	{
 		id: "bp-2",
 		title: "Lead Agent Orchestrator",
-		description: "Coordinate hierarchical multi-agent teams. Delegate modular filesystem tasks and manage agent memories.",
-		content: "You are an expert AI agent orchestrator specializing in EVE filesystem-based agent architecture.",
+		description:
+			"Coordinate hierarchical multi-agent teams. Delegate modular filesystem tasks and manage agent memories.",
+		content:
+			"You are an expert AI agent orchestrator specializing in EVE filesystem-based agent architecture.",
 		tags: ["Agent", "Orchestration", "EVE"],
 		authorId: "user_mock",
 		upvotes: 8,
@@ -149,8 +163,10 @@ async def execute_agent_loop(prompt: str, max_iterations: int = 5) -> str:
 	{
 		id: "bp-3",
 		title: "Google Genkit Router",
-		description: "Build robust agent actions, dynamic tool schemas, and multi-model switching flow middleware.",
-		content: "You are a senior Genkit engineer specializing in Flow-based multi-agent routing.",
+		description:
+			"Build robust agent actions, dynamic tool schemas, and multi-model switching flow middleware.",
+		content:
+			"You are a senior Genkit engineer specializing in Flow-based multi-agent routing.",
 		tags: ["Google Genkit", "AI", "Flows"],
 		authorId: "user_mock",
 		upvotes: 15,
@@ -170,7 +186,7 @@ export const inMemoryUsers: any[] = [
 
 // Helper to safely convert Drizzle expression AST objects to string without throwing on circular structures
 // biome-ignore lint/suspicious/noExplicitAny: custom query helper
-function extractConditionString(condition: any): string {
+function _extractConditionString(condition: any): string {
 	if (!condition) return "";
 	if (typeof condition === "string") return condition;
 	const seen = new WeakSet();
@@ -191,7 +207,9 @@ function extractConditionString(condition: any): string {
 // Drizzle's eq(column, value) → SQL`${column} = ${value}` stores
 // fragments in queryChunks: [Column, " = ", Param].
 // biome-ignore lint/suspicious/noExplicitAny: custom query helper
-function extractColumnFilter(condition: any): { column: string; value: any } | null {
+function extractColumnFilter(
+	condition: any,
+): { column: string; value: any } | null {
 	if (!condition) return null;
 	const chunks = condition.queryChunks;
 	if (!Array.isArray(chunks)) return null;
@@ -222,7 +240,8 @@ let cachedDb: any = null;
 export function getDb(): any {
 	if (cachedDb) return cachedDb;
 
-	const dbUrl = typeof process !== "undefined" ? process.env.DATABASE_URL : undefined;
+	const dbUrl =
+		typeof process !== "undefined" ? process.env.DATABASE_URL : undefined;
 	if (dbUrl) {
 		const client = neon(dbUrl);
 		cachedDb = drizzle(client, { schema });
@@ -306,7 +325,8 @@ export function getDb(): any {
 							const filter = extractColumnFilter(condition);
 							if (filter) {
 								list = list.filter(
-									(item: any) => String(item[filter.column]) === String(filter.value),
+									(item: any) =>
+										String(item[filter.column]) === String(filter.value),
 								);
 							}
 							return chain;
@@ -362,9 +382,12 @@ export function getDb(): any {
 	return cachedDb;
 }
 
-export const db = new Proxy({}, {
-	get(_target, prop) {
-		return getDb()[prop];
+export const db = new Proxy(
+	{},
+	{
+		get(_target, prop) {
+			return getDb()[prop];
+		},
+		// biome-ignore lint/suspicious/noExplicitAny: Proxy wrapper for lazy initialization
 	},
-// biome-ignore lint/suspicious/noExplicitAny: Proxy wrapper for lazy initialization
-}) as any;
+) as any;

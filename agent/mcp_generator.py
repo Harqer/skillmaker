@@ -1,17 +1,18 @@
 import json
 
+
 def generate_mcp_server(skill_name: str, description: str, folder_name: str) -> str:
     """NOTE: This function is currently unused but kept for future use as a
     reference for MCP server scaffolding.
     Generates a functional mcp-server.json or python MCP scaffolding script for the created subagent.
     This enables the subagent to be exposed as a native MCP tool in Claude Desktop, Cursor, etc.
-    
+
     The generated template includes `subprocess` intentionally — it runs a tracked
     Node.js validation script from the skill's scripts/ directory, not arbitrary shell
     execution. The validation path is hard-coded and the command array is fixed, so
     it is not exploitable for injection.
     """
-    
+
     # We will scaffold a lightweight Python MCP Server using the Model Context Protocol
     mcp_script = f"""import os
 import json
@@ -49,15 +50,14 @@ if __name__ == "__main__":
 
     return mcp_script
 
+
 def generate_mcp_config(skill_name: str, folder_name: str) -> str:
     """Generates the MCP configuration JSON for Claude Desktop / Cursor."""
     config = {
         "mcpServers": {
             skill_name.lower().replace(" ", "-"): {
                 "command": "python",
-                "args": [
-                    f".agents/skills/{folder_name}/mcp_server.py"
-                ]
+                "args": [f".agents/skills/{folder_name}/mcp_server.py"],
             }
         }
     }
