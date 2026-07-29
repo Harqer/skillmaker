@@ -1,0 +1,34 @@
+node_modules
+.DS_Store
+dist
+dist-ssr
+*.local
+.env
+.nitro
+.tanstack
+.wrangler
+.output
+.vinxi
+__unconfig*
+todos.json
+
+# Databases
+*.db
+*.sqlite
+*.sqlite3
+
+# PDF files
+*.pdf
+
+# Python virtual environments
+venv/
+venv_new/
+
+# Python compiled files
+__pycache__/
+*.pyc
+
+# Ignore all dotfiles
+.*
+# Keep .gitignore
+!.gitignore
