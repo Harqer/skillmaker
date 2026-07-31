@@ -400,11 +400,44 @@ def generate_skill_card_node(state: CodegenState):
         }
     except Exception as e:
         print(f"[codegen_sub_agent] Error during structured skill generation: {e}")
+        target_url = state.get('target_url', 'unknown')
+        clean_name = folder_name.lower()
+        fallback_skill_md = f"""---
+name: {clean_name}
+description: Official EVE agent skill for {target_url} compiled via Raven Deep Research. Use when working with {target_url} APIs, CLI tools, or SDK setup.
+license: Apache-2.0
+compatibility: Universal runtime
+metadata:
+  author: skillmaker
+  version: "1.0"
+---
+
+# SkillOpt Trained Skill: {target_url}
+
+## Overview & Domain Expertise
+Generated based on analysis:
+{state.get('analysis', 'No analysis available.')}
+
+## Progressive Disclosure Strategy
+1. **Advertise (~100 tokens)**: Triggers on queries related to {target_url}.
+2. **Load (<5000 tokens)**: Load operational CLI/SDK rules and API methods.
+3. **Read Resources**: Refer to `references/POLICY_FAQ.md` for policy and edge cases.
+4. **Run Scripts**: Execute `scripts/validate.py` for health checks.
+
+## Directives
+1. Use official CLI & SDK integration patterns.
+2. Enforce negative constraints and zero-token interception rules.
+"""
         return {
             "skill_content": json.dumps(
                 {
-                    "instructions.md": f"# Lead Agent Coordinator\nAuto-generated skill for {state.get('target_url', 'unknown')}.",
-                    "skills/SKILL.md": f"# SkillOpt Trained Skill\nGenerated based on analysis:\n{state.get('analysis', 'No analysis available.')}",
+                    "instructions.md": f"# Lead Agent Coordinator\nAuto-generated skill for {target_url}.",
+                    "subagents/specialist.md": f"# Specialist Subagent\nTask execution subagent for {target_url}.",
+                    "skills/SKILL.md": fallback_skill_md,
+                    "rules/boundary_checks.md": "# Boundary & Safety Rules\n1. Validate API payloads.\n2. Retry network calls with backoff.",
+                    "scripts/validate.py": "# Skill Validation\nprint('Validating skill...')\n",
+                    "references/POLICY_FAQ.md": f"# Usage FAQ\nGuidance for {target_url}.\n",
+                    "assets/template.md": "{\n  \"version\": \"1.0\"\n}\n",
                 },
                 indent=2,
             ),

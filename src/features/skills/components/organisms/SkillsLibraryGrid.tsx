@@ -1,9 +1,29 @@
 import { useNavigate } from "@tanstack/react-router";
-import { BookOpen, Compass, FolderPlus, Users } from "lucide-react";
+import {
+	Activity,
+	BookOpen,
+	Compass,
+	Cpu,
+	ExternalLink,
+	FolderPlus,
+	GitBranch,
+	RefreshCw,
+	Sparkles,
+	Users,
+} from "lucide-react";
 import { SignedIn } from "@/components/auth/ClerkHelpers";
 import SkillCard from "@/components/skills/SkillCard";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+	Card,
+	CardContent,
+	CardDescription,
+	CardHeader,
+	CardTitle,
+} from "@/components/ui/card";
 import type { Skill } from "@/features/skills/types";
+import { backendPlatforms } from "@/lib/db";
 
 interface SkillsLibraryGridProps {
 	mySkills: Skill[];
@@ -17,17 +37,99 @@ export function SkillsLibraryGrid({
 	const navigate = useNavigate();
 
 	return (
-		<div className="space-y-16">
+		<div className="space-y-16 w-full">
+			{/* Backend Platform & Orchestration Architecture Panel */}
+			<div className="space-y-6 pt-6 border-t border-border/40">
+				<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+					<div className="space-y-1">
+						<div className="flex items-center gap-2">
+							<Badge
+								variant="outline"
+								className="bg-primary/10 text-primary border-primary/20 font-mono text-[10px] uppercase tracking-wider px-2 py-0.5"
+							>
+								System Architecture
+							</Badge>
+							<span className="text-xs text-muted-foreground font-mono">
+								Stage 1-3 Infrastructure
+							</span>
+						</div>
+						<h2 className="text-2xl font-bold font-serif text-foreground tracking-tight flex items-center gap-2">
+							<Cpu className="h-5 w-5 text-primary" /> Backend Orchestration &
+							Pipeline Engines
+						</h2>
+						<p className="text-sm text-muted-foreground font-medium">
+							Raven, Loop Engineering, and SkillOpt form the backend engine pipeline that ingests documentation URLs and outputs structured EVE skills.
+						</p>
+					</div>
+				</div>
+
+				<div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+					{backendPlatforms.map((engine) => (
+						<Card
+							key={engine.id}
+							className="border border-border/80 bg-card/60 backdrop-blur-sm hover:border-primary/40 transition-all duration-300 relative overflow-hidden group flex flex-col"
+						>
+							<div className="absolute top-0 right-0 w-24 h-24 bg-primary/5 rounded-bl-full pointer-events-none group-hover:bg-primary/10 transition-colors" />
+							<CardHeader className="p-5 pb-3">
+								<div className="flex items-center justify-between mb-2">
+									<div className="w-8 h-8 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+										{engine.id.includes("raven") && (
+											<Sparkles className="w-4 h-4" />
+										)}
+										{engine.id.includes("loop") && (
+											<RefreshCw className="w-4 h-4" />
+										)}
+										{engine.id.includes("skillopt") && (
+											<Activity className="w-4 h-4" />
+										)}
+									</div>
+									<Badge
+										variant="secondary"
+										className="text-[10px] font-mono bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20"
+									>
+										{engine.status}
+									</Badge>
+								</div>
+								<CardTitle className="text-base font-bold font-serif leading-tight">
+									{engine.name}
+								</CardTitle>
+								<div className="text-xs font-mono font-medium text-primary mt-0.5">
+									{engine.role}
+								</div>
+							</CardHeader>
+							<CardContent className="p-5 pt-0 flex-1 flex flex-col justify-between">
+								<CardDescription className="text-xs text-muted-foreground leading-relaxed">
+									{engine.description}
+								</CardDescription>
+								<div className="mt-4 pt-3 border-t border-border/40 flex items-center justify-between">
+									<a
+										href={engine.sourceUrl}
+										target="_blank"
+										rel="noreferrer"
+										className="inline-flex items-center text-[11px] font-mono text-muted-foreground hover:text-primary transition-colors"
+									>
+										<GitBranch className="w-3 h-3 mr-1" /> Source Code
+										<ExternalLink className="w-2.5 h-2.5 ml-1 opacity-70" />
+									</a>
+									<span className="text-[10px] font-mono text-muted-foreground/80">
+										EVE Compliant
+									</span>
+								</div>
+							</CardContent>
+						</Card>
+					))}
+				</div>
+			</div>
+
 			{/* Personal Library Section (My Library) */}
 			<div className="space-y-6 pt-6 border-t border-border/40">
 				<div className="flex items-center justify-between">
 					<div className="space-y-1">
 						<h2 className="text-2xl font-bold font-serif text-foreground tracking-tight flex items-center gap-2">
-							<BookOpen className="h-5 w-5 text-primary" /> My Library
+							<BookOpen className="h-5 w-5 text-primary" /> My Domain Skills
 						</h2>
 						<p className="text-sm text-muted-foreground font-medium">
-							Your personal workspace, including compiled prompt skills and
-							custom setups.
+							Your personal collection of domain expertise skills generated from URL documentation inputs.
 						</p>
 						<p className="text-xs text-muted-foreground italic">
 							* Must be signed in to save and access your personal library.
@@ -74,9 +176,7 @@ export function SkillsLibraryGrid({
 									Your personal library is empty
 								</h3>
 								<p className="text-sm text-muted-foreground leading-relaxed">
-									You haven't compiled or published any custom prompt skills
-									yet. Submit a product documentation URL above to compile one
-									instantly, or design a custom skill from scratch.
+									You haven't compiled or published any custom domain skills yet. Submit a product documentation URL above to compile one instantly into EVE format.
 								</p>
 							</div>
 						</div>
@@ -98,11 +198,10 @@ export function SkillsLibraryGrid({
 				<div className="flex items-center justify-between">
 					<div className="space-y-1">
 						<h2 className="text-2xl font-bold font-serif text-foreground tracking-tight flex items-center gap-2">
-							<Users className="h-5 w-5 text-primary" /> Community Library
+							<Users className="h-5 w-5 text-primary" /> Domain Skill Catalog
 						</h2>
 						<p className="text-sm text-muted-foreground font-medium">
-							Explore specialized agent prompt skills published by engineers
-							globally.
+							Explore specialized EVE domain skills generated from documentation URLs (Expo, Stripe, Next.js, Google ADK).
 						</p>
 					</div>
 					{communitySkills.length > 0 && (
@@ -143,9 +242,7 @@ export function SkillsLibraryGrid({
 									Community catalog is empty
 								</h3>
 								<p className="text-sm text-muted-foreground leading-relaxed">
-									No community-shared prompt skills have been published yet. Be
-									the first to share a validated agent skill, or load one of the
-									quick-start blueprints below to begin.
+									No community domain skills have been published yet. Be the first to share a validated agent skill by compiling a URL above!
 								</p>
 							</div>
 						</div>

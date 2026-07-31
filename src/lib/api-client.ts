@@ -1,9 +1,9 @@
 const FASTAPI_URL =
 	process.env.FASTAPI_URL ||
 	process.env.VITE_FASTAPI_URL ||
-	"http://localhost:8000";
+	"";
 
-interface ApiError {
+export interface ApiError {
 	error: string;
 }
 
@@ -12,11 +12,14 @@ async function apiPost<T>(
 	body: unknown,
 	authToken?: string,
 ): Promise<T & { error?: string }> {
+	if (!FASTAPI_URL) {
+		return { error: "FASTAPI_URL is not configured" } as T & { error: string };
+	}
 	try {
 		const headers: Record<string, string> = {
 			"Content-Type": "application/json",
 		};
-		if (authToken) {
+		if (authToken && authToken.split(".").length === 3) {
 			headers.Authorization = `Bearer ${authToken}`;
 		}
 		const res = await fetch(`${FASTAPI_URL}${path}`, {
@@ -42,9 +45,12 @@ async function apiGet<T>(
 	path: string,
 	authToken?: string,
 ): Promise<T & { error?: string }> {
+	if (!FASTAPI_URL) {
+		return { error: "FASTAPI_URL is not configured" } as T & { error: string };
+	}
 	try {
 		const headers: Record<string, string> = {};
-		if (authToken) {
+		if (authToken && authToken.split(".").length === 3) {
 			headers.Authorization = `Bearer ${authToken}`;
 		}
 		const res = await fetch(`${FASTAPI_URL}${path}`, { headers });
