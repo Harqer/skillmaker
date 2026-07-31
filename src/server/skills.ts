@@ -1,4 +1,3 @@
-import { auth } from "@clerk/tanstack-react-start/server";
 import { createServerFn } from "@tanstack/react-start";
 import { desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
@@ -29,6 +28,8 @@ export const submitSkillSchema = z.object({
 // Seamless Guest/Fallback Support when Clerk is not authenticated or blocked.
 async function requireAuth() {
 	try {
+		if (typeof window !== "undefined") return "user_mock";
+		const { auth } = await import("@clerk/tanstack-react-start/server");
 		const { userId } = await auth();
 		if (!userId) {
 			return "user_mock";

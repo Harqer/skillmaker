@@ -13,17 +13,16 @@ const config = defineConfig({
 	optimizeDeps: {
 		include: [
 			"@clerk/clerk-react",
-			"@clerk/tanstack-react-start",
 			"@clerk/themes",
 			"@tanstack/react-query",
 			"@tanstack/react-router",
-			"@tanstack/react-start",
 			"seroval",
 			"lucide-react",
 			"clsx",
 			"tailwind-merge",
 			"framer-motion",
 		],
+		exclude: ["@clerk/tanstack-react-start/server"],
 	},
 	resolve: {
 		alias: {

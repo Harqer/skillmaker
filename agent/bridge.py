@@ -97,18 +97,31 @@ Follow these strict architectural principles:
    - OFFICIAL SKILL DISCOVERY: Actively scan the documentation for any existing official skills, CLI tools (e.g. @tanstack/intent, npx commands), MCP tool packages, SDK rules, or SKILL.md manifests.
    - DIRECT ADOPTION & EVE IMPLEMENTATION: Extract exact official commands, SDK method signatures, and operational patterns into the EVE Skill Bundle.
 
-2. EVE AGENT DIRECTORY FORMAT:
-   Structure the output into standard EVE filesystem files incorporating any discovered official skills and Google ADK executable agents:
+2. OPEN SPECIFICATION FOR AGENT SKILLS & EVE DIRECTORY FORMAT:
+   Structure the output into standard EVE filesystem files incorporating standard YAML frontmatter and progressive disclosure:
+   - "skills/SKILL.md": MUST START WITH VALID YAML FRONTMATTER:
+     ---
+     name: <lowercase-kebab-case name matching domain/skill, max 64 chars>
+     description: <what the skill does and when to use it, including keyword triggers, max 1024 chars>
+     license: Apache-2.0
+     compatibility: <environment requirements>
+     metadata:
+       author: skillmaker
+       version: "1.0"
+     ---
+     Followed by Markdown body covering Overview, Progressive Disclosure Strategy (Advertise -> Load -> Read Resources -> Run Scripts), Core Integration Patterns, Negative Constraints & Zero-Token Rules.
    - "instructions.md": Lead Agent Coordinator instructions with routing intent logic, official skill triggers, subagent delegation, and loop safety guards (max_iterations: 5).
    - "subagents/specialist.md": Task Specialist Subagent directives (<150 lines) with max_iterations: 5 safety guard.
-   - "skills/SKILL.md": SkillOpt Trained Skill artifact (300-1500 tokens) embedding official skill instructions, negative constraints, exact CLI/API patterns, and zero-token interception rules.
    - "rules/boundary_checks.md": Edge-case failure guards and error recovery procedures.
-   - "agents/adk_agent.go": Complete executable Go module using google.golang.org/adk/v2 implementing the agent for this skill.
-   - "agents/adk_agent.py": Complete executable Python module using google.adk.agents.LlmAgent and google.adk.tools implementing the agent for this skill.
+   - "scripts/validate.py": Executable Python validation script.
+   - "references/POLICY_FAQ.md": Reference document loaded on demand.
+   - "assets/template.md": Configuration asset template.
+   - "agents/adk_agent.go": Complete executable Go module using google.golang.org/adk/v2.
+   - "agents/adk_agent.py": Complete executable Python module using google.adk.agents.LlmAgent and google.adk.tools.
 
 Return valid JSON with schema:
 {
-  "title": "Clear title (e.g. 'Stripe Payments Expert' or 'TanStack Intent Skill')",
+  "title": "Clear title (e.g. 'Stripe Payments Expert' or 'Expo React Native Skill')",
   "description": "Concise 1-sentence description including official skill references.",
   "skilloptReport": {
     "epochsCompleted": 2,
@@ -119,8 +132,11 @@ Return valid JSON with schema:
   "eveFiles": {
     "instructions.md": "Markdown string for Lead Agent Coordinator",
     "subagents/specialist.md": "Markdown string for Specialist Subagent",
-    "skills/SKILL.md": "Markdown string for SkillOpt Trained Skill (incorporating official doc skills)",
+    "skills/SKILL.md": "Markdown string for SkillOpt Trained Skill with YAML frontmatter header and progressive disclosure",
     "rules/boundary_checks.md": "Markdown string for Edge Case Rules",
+    "scripts/validate.py": "Executable Python validation code",
+    "references/POLICY_FAQ.md": "Markdown reference doc loaded on demand",
+    "assets/template.md": "Asset template file",
     "agents/adk_agent.go": "Complete Go code using google.golang.org/adk/v2",
     "agents/adk_agent.py": "Complete Python code using google.adk.agents"
   },

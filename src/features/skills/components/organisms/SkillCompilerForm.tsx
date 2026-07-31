@@ -21,7 +21,9 @@ import { useSkills } from "../../hooks/useSkills";
 import { LoadingSpinner } from "../atoms/LoadingSpinner";
 
 const formSchema = z.object({
-	url: z.string().url("Must be a valid URL"),
+	url: z
+		.string()
+		.min(1, "Please enter a URL, repo, or skills command (e.g., npx skills add vercel/eve)"),
 	include_mcp: z.boolean().default(false),
 });
 
@@ -57,7 +59,24 @@ export function SkillCompilerForm() {
 
 	const onSubmit = async (values: FormValues) => {
 		clearError();
-		await compile(values.url, undefined, values.include_mcp);
+		let targetUrl = values.url.trim();
+
+		if (targetUrl.toLowerCase().startsWith("npx skills add ")) {
+			targetUrl = targetUrl.replace(/^npx skills add\s+/i, "").trim();
+		}
+		if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+			if (targetUrl === "vercel/eve") {
+				targetUrl = "https://vercel.com/docs/eve";
+			} else if (targetUrl === "vercel/workflow") {
+				targetUrl = "https://vercel.com/docs/workflows";
+			} else if (targetUrl.includes("/")) {
+				targetUrl = `https://github.com/${targetUrl}`;
+			} else {
+				targetUrl = `https://github.com/vercel/${targetUrl}`;
+			}
+		}
+
+		await compile(targetUrl, undefined, values.include_mcp);
 	};
 
 	// Parse compiled skill files if present
@@ -180,7 +199,7 @@ export function SkillCompilerForm() {
 						<input
 							id="url-compiler-input"
 							type="text"
-							placeholder="Paste repository or documentation URL (e.g. https://github.com/org/repo)"
+							placeholder="Enter URL or command (e.g. npx skills add vercel/eve or https://vercel.com/docs/eve)"
 							disabled={isGenerating}
 							{...register("url")}
 							className="flex-1 bg-transparent border-none focus:ring-0 px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none w-full"
