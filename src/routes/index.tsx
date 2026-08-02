@@ -3,7 +3,6 @@ import { Sparkles } from "lucide-react";
 import { BlueprintCard } from "@/features/skills/components/molecules/BlueprintCard";
 import { SkillCompilerForm } from "@/features/skills/components/organisms/SkillCompilerForm";
 import { SkillsLibraryGrid } from "@/features/skills/components/organisms/SkillsLibraryGrid";
-import { SkillsProvider } from "@/features/skills/context/SkillsContext";
 import { useSkills } from "@/features/skills/hooks/useSkills";
 import { getSkills } from "@/server/skills";
 import { useAuth } from "../components/auth/ClerkHelpers";
@@ -32,16 +31,8 @@ export const Route = createFileRoute("/")({
 			};
 		}
 	},
-	component: HomeWithProvider,
+	component: Home,
 });
-
-function HomeWithProvider() {
-	return (
-		<SkillsProvider>
-			<Home />
-		</SkillsProvider>
-	);
-}
 
 const BLUEPRINTS = [
 	{
@@ -77,7 +68,7 @@ function Home() {
 	const { seed, seedingBlueprint } = useSkills();
 	const { userId, isLoaded } = useAuth();
 
-	const currentUserId = isLoaded && userId ? userId : "user_mock";
+	const currentUserId = isLoaded && userId ? userId : "guest_user";
 
 	const mySkills = trendingSkills.filter(
 		(s: { authorId: string }) => s.authorId === currentUserId,

@@ -402,7 +402,7 @@ def run_skillopt_cycle(db_id: int) -> dict:
             from skillopt_sleep.config import SleepConfig
             from skillopt_sleep.cycle import run_sleep_cycle
 
-            default_backend = "gemini" if os.environ.get("GEMINI_API_KEY") else "mock"
+            default_backend = "gemini"
             backend_choice = os.environ.get("SKILLOPT_BACKEND", default_backend)
 
             cfg = SleepConfig(

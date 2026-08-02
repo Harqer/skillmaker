@@ -10,16 +10,27 @@ import * as React from "react";
 import { useTheme } from "../layout/ThemeContext";
 
 // Detect if a valid Clerk Publishable Key is provided
-const DEFAULT_PUBLISHABLE_KEY =
-	(typeof process !== "undefined" && process.env?.VITE_CLERK_PUBLISHABLE_KEY) ||
-	(typeof import.meta !== "undefined" &&
-		import.meta.env?.VITE_CLERK_PUBLISHABLE_KEY) ||
-	"";
+const getRawPublishableKey = (): string => {
+	const key =
+		(typeof process !== "undefined" && process.env?.VITE_CLERK_PUBLISHABLE_KEY) ||
+		(typeof import.meta !== "undefined" &&
+			import.meta.env?.VITE_CLERK_PUBLISHABLE_KEY) ||
+		"";
+	if (
+		!key ||
+		key.includes("placeholder") ||
+		key.includes("your_key") ||
+		!key.startsWith("pk_")
+	) {
+		return "";
+	}
+	return key;
+};
+
+const DEFAULT_PUBLISHABLE_KEY = getRawPublishableKey();
 
 // Context to check if Clerk is initialized with a valid key
-const ClerkActiveContext = React.createContext<boolean>(
-	Boolean(DEFAULT_PUBLISHABLE_KEY),
-);
+const ClerkActiveContext = React.createContext<boolean>(false);
 
 class InnerClerkErrorBoundary extends React.Component<
 	{ children: React.ReactNode; fallback: React.ReactNode },
@@ -61,7 +72,12 @@ export function SafeClerkProvider({
 	afterSignOutUrl?: string;
 }) {
 	const { isDark } = useTheme();
-	const activeKey = publishableKey || DEFAULT_PUBLISHABLE_KEY;
+	const rawKey = publishableKey || DEFAULT_PUBLISHABLE_KEY;
+	const isValidKey =
+		Boolean(rawKey) &&
+		rawKey.startsWith("pk_") &&
+		!rawKey.includes("placeholder") &&
+		!rawKey.includes("your_key");
 	const [isMounted, setIsMounted] = React.useState(false);
 	const [isIframe, setIsIframe] = React.useState(false);
 
@@ -84,25 +100,25 @@ export function SafeClerkProvider({
 		</ClerkActiveContext.Provider>
 	);
 
-	// On SSR and initial client hydration pass, or if key is missing or inside iframe,
+	// On SSR and initial client hydration pass, or if key is missing/invalid,
 	// render the fallback UI to ensure 100% hydration matching.
-	if (!activeKey || !isMounted || isIframe) {
+	if (!isValidKey || !isMounted) {
 		return fallbackUI;
 	}
 
 	return (
 		<InnerClerkErrorBoundary fallback={fallbackUI}>
-			<ClerkActiveContext.Provider value={true}>
-				<ClerkProvider
-					publishableKey={activeKey}
-					afterSignOutUrl={afterSignOutUrl}
-					appearance={{
-						baseTheme: isDark ? dark : undefined,
-					}}
-				>
+			<ClerkProvider
+				publishableKey={rawKey}
+				afterSignOutUrl={afterSignOutUrl}
+				appearance={{
+					baseTheme: isDark ? dark : undefined,
+				}}
+			>
+				<ClerkActiveContext.Provider value={true}>
 					{children}
-				</ClerkProvider>
-			</ClerkActiveContext.Provider>
+				</ClerkActiveContext.Provider>
+			</ClerkProvider>
 		</InnerClerkErrorBoundary>
 	);
 }
@@ -111,18 +127,53 @@ export function useAuth() {
 	const isClerkActive = React.useContext(ClerkActiveContext);
 
 	if (!isClerkActive) {
+		const storedToken = typeof window !== "undefined" ? localStorage.getItem("fastapi_auth_token") : null;
 		return {
 			isLoaded: true,
-			isSignedIn: false,
-			userId: null,
-			sessionId: null,
-			getToken: async () => null,
-			signOut: async () => {},
+			isSignedIn: Boolean(storedToken),
+			userId: storedToken ? "jwt_user" : null,
+			sessionId: storedToken ? "jwt_session" : null,
+			getToken: async () => storedToken || null,
+			signOut: async () => {
+				if (typeof window !== "undefined") {
+					localStorage.removeItem("fastapi_auth_token");
+				}
+			},
 		};
 	}
 
-	// biome-ignore lint/correctness/useHookAtTopLevel: Static publishable key context flag makes hook execution order 100% stable
-	return useClerkAuth();
+	try {
+		// biome-ignore lint/correctness/useHookAtTopLevel: Static publishable key context flag makes hook execution order 100% stable
+		const clerkAuth = useClerkAuth();
+		const storedToken = typeof window !== "undefined" ? localStorage.getItem("fastapi_auth_token") : null;
+
+		return {
+			...clerkAuth,
+			isSignedIn: clerkAuth.isSignedIn || Boolean(storedToken),
+			getToken: async (options?: unknown) => {
+				try {
+					const token = await clerkAuth.getToken(options);
+					if (token) return token;
+				} catch (_e) {}
+				return storedToken || null;
+			},
+		};
+	} catch (e) {
+		console.warn("useAuth caught Clerk context error, falling back to stored token or guest mode:", e);
+		const storedToken = typeof window !== "undefined" ? localStorage.getItem("fastapi_auth_token") : null;
+		return {
+			isLoaded: true,
+			isSignedIn: Boolean(storedToken),
+			userId: storedToken ? "jwt_user" : null,
+			sessionId: storedToken ? "jwt_session" : null,
+			getToken: async () => storedToken || null,
+			signOut: async () => {
+				if (typeof window !== "undefined") {
+					localStorage.removeItem("fastapi_auth_token");
+				}
+			},
+		};
+	}
 }
 
 export function useUser() {
@@ -136,8 +187,17 @@ export function useUser() {
 		};
 	}
 
-	// biome-ignore lint/correctness/useHookAtTopLevel: Static publishable key context flag makes hook execution order 100% stable
-	return useClerkUser();
+	try {
+		// biome-ignore lint/correctness/useHookAtTopLevel: Static publishable key context flag makes hook execution order 100% stable
+		return useClerkUser();
+	} catch (e) {
+		console.warn("useUser caught Clerk context error, falling back to guest mode:", e);
+		return {
+			isLoaded: true,
+			isSignedIn: false,
+			user: null,
+		};
+	}
 }
 
 // Export clean, direct production-ready authentication wrapper components
@@ -163,11 +223,10 @@ export function SignInButton(props: any) {
 	const isClerkActive = React.useContext(ClerkActiveContext);
 
 	if (!isClerkActive) {
-		// In iframe preview / guest mode, open app in new tab if user clicks Sign In
-		const handleClick = () => {
-			if (typeof window !== "undefined") {
-				window.open(window.location.href, "_blank");
-			}
+		// In preview / guest mode, sign-in is disabled safely without popups
+		const handleClick = (e?: React.MouseEvent) => {
+			e?.preventDefault();
+			e?.stopPropagation();
 		};
 
 		if (props.children) {
@@ -184,9 +243,9 @@ export function SignInButton(props: any) {
 			<button
 				type="button"
 				onClick={handleClick}
-				className="px-4 py-2 text-sm font-semibold rounded-lg bg-primary hover:bg-primary/90 text-primary-foreground transition-colors inline-flex items-center gap-2"
+				className="px-4 py-2 text-sm font-semibold rounded-lg bg-primary/20 text-primary transition-colors inline-flex items-center gap-2 cursor-default"
 			>
-				Sign In (New Tab)
+				Guest Mode
 			</button>
 		);
 	}

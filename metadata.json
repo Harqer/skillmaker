@@ -1,6 +1,6 @@
 {
   "name": "Raven",
-  "description": "Create portable, agentic expertise from documentation URLs, compile skills, and share them directly.",
+  "description": "Create portable, agentic expertise from documentation URLs, compile skills, share them, and create ai agents",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

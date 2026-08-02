@@ -11,9 +11,11 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as BenchmarksRouteImport } from './routes/benchmarks'
+import { Route as DeepwikiRouteImport } from './routes/deepwiki'
 import { Route as ExploreRouteImport } from './routes/explore'
 import { Route as LibraryRouteImport } from './routes/library'
 import { Route as SubmitRouteImport } from './routes/submit'
+import { Route as VibecodeRouteImport } from './routes/vibecode'
 import { Route as ApiSkillsRouteImport } from './routes/api/skills'
 import { Route as SkillsSkillIdRouteImport } from './routes/skills.$skillId'
 
@@ -25,6 +27,11 @@ const IndexRoute = IndexRouteImport.update({
 const BenchmarksRoute = BenchmarksRouteImport.update({
   id: '/benchmarks',
   path: '/benchmarks',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeepwikiRoute = DeepwikiRouteImport.update({
+  id: '/deepwiki',
+  path: '/deepwiki',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ExploreRoute = ExploreRouteImport.update({
@@ -42,6 +49,11 @@ const SubmitRoute = SubmitRouteImport.update({
   path: '/submit',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VibecodeRoute = VibecodeRouteImport.update({
+  id: '/vibecode',
+  path: '/vibecode',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiSkillsRoute = ApiSkillsRouteImport.update({
   id: '/api/skills',
   path: '/api/skills',
@@ -56,18 +68,22 @@ const SkillsSkillIdRoute = SkillsSkillIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/benchmarks': typeof BenchmarksRoute
+  '/deepwiki': typeof DeepwikiRoute
   '/explore': typeof ExploreRoute
   '/library': typeof LibraryRoute
   '/submit': typeof SubmitRoute
+  '/vibecode': typeof VibecodeRoute
   '/api/skills': typeof ApiSkillsRoute
   '/skills/$skillId': typeof SkillsSkillIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/benchmarks': typeof BenchmarksRoute
+  '/deepwiki': typeof DeepwikiRoute
   '/explore': typeof ExploreRoute
   '/library': typeof LibraryRoute
   '/submit': typeof SubmitRoute
+  '/vibecode': typeof VibecodeRoute
   '/api/skills': typeof ApiSkillsRoute
   '/skills/$skillId': typeof SkillsSkillIdRoute
 }
@@ -75,9 +91,11 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/benchmarks': typeof BenchmarksRoute
+  '/deepwiki': typeof DeepwikiRoute
   '/explore': typeof ExploreRoute
   '/library': typeof LibraryRoute
   '/submit': typeof SubmitRoute
+  '/vibecode': typeof VibecodeRoute
   '/api/skills': typeof ApiSkillsRoute
   '/skills/$skillId': typeof SkillsSkillIdRoute
 }
@@ -86,27 +104,33 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/benchmarks'
+    | '/deepwiki'
     | '/explore'
     | '/library'
     | '/submit'
+    | '/vibecode'
     | '/api/skills'
     | '/skills/$skillId'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/benchmarks'
+    | '/deepwiki'
     | '/explore'
     | '/library'
     | '/submit'
+    | '/vibecode'
     | '/api/skills'
     | '/skills/$skillId'
   id:
     | '__root__'
     | '/'
     | '/benchmarks'
+    | '/deepwiki'
     | '/explore'
     | '/library'
     | '/submit'
+    | '/vibecode'
     | '/api/skills'
     | '/skills/$skillId'
   fileRoutesById: FileRoutesById
@@ -114,9 +138,11 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   BenchmarksRoute: typeof BenchmarksRoute
+  DeepwikiRoute: typeof DeepwikiRoute
   ExploreRoute: typeof ExploreRoute
   LibraryRoute: typeof LibraryRoute
   SubmitRoute: typeof SubmitRoute
+  VibecodeRoute: typeof VibecodeRoute
   ApiSkillsRoute: typeof ApiSkillsRoute
   SkillsSkillIdRoute: typeof SkillsSkillIdRoute
 }
@@ -135,6 +161,13 @@ declare module '@tanstack/react-router' {
       path: '/benchmarks'
       fullPath: '/benchmarks'
       preLoaderRoute: typeof BenchmarksRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/deepwiki': {
+      id: '/deepwiki'
+      path: '/deepwiki'
+      fullPath: '/deepwiki'
+      preLoaderRoute: typeof DeepwikiRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/explore': {
@@ -158,6 +191,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SubmitRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/vibecode': {
+      id: '/vibecode'
+      path: '/vibecode'
+      fullPath: '/vibecode'
+      preLoaderRoute: typeof VibecodeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/skills': {
       id: '/api/skills'
       path: '/api/skills'
@@ -178,9 +218,11 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   BenchmarksRoute: BenchmarksRoute,
+  DeepwikiRoute: DeepwikiRoute,
   ExploreRoute: ExploreRoute,
   LibraryRoute: LibraryRoute,
   SubmitRoute: SubmitRoute,
+  VibecodeRoute: VibecodeRoute,
   ApiSkillsRoute: ApiSkillsRoute,
   SkillsSkillIdRoute: SkillsSkillIdRoute,
 }

@@ -70,7 +70,9 @@ function SkillDetailPage() {
 	}
 
 	const eveFileKeys = parsedEveFiles ? Object.keys(parsedEveFiles) : [];
+	const eveKeysString = eveFileKeys.join(",");
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: eveKeysString serializes keys to prevent re-triggering loop
 	useEffect(() => {
 		if (eveFileKeys.length > 0 && !activeEveFile) {
 			// Prioritize instructions.md as the active file if it exists
@@ -80,7 +82,7 @@ function SkillDetailPage() {
 				setActiveEveFile(eveFileKeys[0]);
 			}
 		}
-	}, [eveFileKeys, activeEveFile]);
+	}, [eveKeysString, activeEveFile]);
 
 	// Determine active content to display
 	let displayCode = "";
@@ -150,7 +152,7 @@ function SkillDetailPage() {
 						className="inline-flex items-center gap-2 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors bg-muted/40 hover:bg-muted/70 px-3.5 py-2 rounded-xl border border-border/50"
 					>
 						<ArrowLeft className="h-4 w-4" />
-						Back to Compiler
+						Back to Skill Maker
 					</Link>
 
 					<div className="flex items-center gap-2">
@@ -358,7 +360,7 @@ function SkillDetailPage() {
 							</div>
 							Created by{" "}
 							<span className="text-foreground ml-1 mr-2">
-								{skill.authorId === "user_mock"
+								{skill.authorId === "guest_user"
 									? "You (Guest)"
 									: skill.authorId}
 							</span>{" "}

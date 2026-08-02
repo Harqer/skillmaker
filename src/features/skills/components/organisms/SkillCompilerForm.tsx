@@ -228,7 +228,7 @@ export function SkillCompilerForm() {
 								) : (
 									<>
 										<Send className="mr-1.5 h-3.5 w-3.5" />
-										Compile Skill
+										Make Skill
 									</>
 								)}
 							</Button>

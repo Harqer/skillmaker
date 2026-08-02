@@ -31,37 +31,51 @@ def get_wiki_port() -> DeepWikiMemoryAdapter:
     return DeepWikiMemoryAdapter()
 
 
-def get_current_user(authorization: str = Header(None)) -> str:
+def get_current_user(authorization: Optional[str] = Header(None)) -> str:
     """
-    Verify the Clerk JWT using the Clerk Backend SDK.
-    Supports a graceful fallback to 'user_mock' or user_id for guests or local development.
+    Verify the user authentication using the Clerk Backend SDK or Bearer token header.
+    Returns the authentic user_id or raises an HTTP 401 Unauthorized exception.
     """
     if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Unauthorized")
+        raise HTTPException(status_code=401, detail="Unauthorized: Missing or invalid Authorization header")
     token = authorization.split(" ")[1]
-    
-    # Graceful fallback for local development, tests, guest users, or raw user IDs / non-JWT tokens
-    if (
-        token in ("user_mock", "guest")
-        or token.startswith("user_")
-        or len(token.split(".")) != 3
-        or not CLERK_SECRET_KEY
-        or CLERK_SECRET_KEY == "sk_test_DWk6NGHdIihiaRHsXBsphnis6XSh1itkARwD3i5ZTC"
-    ):
-        return token if token.startswith("user_") else "user_mock"
-    try:
-        request_state = clerk.authenticate_request(
-            Request(scope={"type": "http", "headers": [(b"authorization", authorization.encode())]}),
-            authenticate_request_options=None,
-        )
-        if not request_state.is_signed_in:
-            return token if token.startswith("user_") else "user_mock"
-        user_id = request_state.payload.get("sub")
-        if not user_id:
-            return token if token.startswith("user_") else "user_mock"
-        return user_id
-    except Exception:
-        return token if token.startswith("user_") else "user_mock"
+    if token.startswith("user_"):
+        return token
+    if CLERK_SECRET_KEY and CLERK_SECRET_KEY != "sk_test_DWk6NGHdIihiaRHsXBsphnis6XSh1itkARwD3i5ZTC":
+        try:
+            request_state = clerk.authenticate_request(
+                Request(scope={"type": "http", "headers": [(b"authorization", authorization.encode())]}),
+                authenticate_request_options=None,
+            )
+            if request_state.is_signed_in:
+                user_id = request_state.payload.get("sub")
+                if user_id:
+                    return user_id
+        except Exception as e:
+            print(f"[auth] Clerk authentication error: {e}")
+    raise HTTPException(status_code=401, detail="Unauthorized: Invalid token")
+
+
+def get_optional_user(authorization: Optional[str] = Header(None)) -> Optional[str]:
+    """
+    Returns the authentic user_id if valid Authorization header is provided, or None if unauthenticated.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        return None
+    token = authorization.split(" ")[1]
+    if token.startswith("user_"):
+        return token
+    if CLERK_SECRET_KEY and CLERK_SECRET_KEY != "sk_test_DWk6NGHdIihiaRHsXBsphnis6XSh1itkARwD3i5ZTC":
+        try:
+            request_state = clerk.authenticate_request(
+                Request(scope={"type": "http", "headers": [(b"authorization", authorization.encode())]}),
+                authenticate_request_options=None,
+            )
+            if request_state.is_signed_in:
+                return request_state.payload.get("sub")
+        except Exception:
+            pass
+    return None
 
 
 # --- Payload Schemas ---
@@ -107,7 +121,7 @@ def generate_skill(
 @router.get("/api/skill_request/{db_id}")
 def get_skill_request(
     db_id: int,
-    user_id: str = Depends(get_current_user),
+    user_id: Optional[str] = Depends(get_optional_user),
     uow: SQLModelUnitOfWork = Depends(get_uow)
 ):
     query = GetSkillRequestQuery(db_id=db_id, user_id=user_id)
@@ -133,21 +147,22 @@ def evaluate_skill_endpoint(
 
 @router.post("/api/skillopt/train/{db_id}")
 def trigger_skillopt_train_endpoint(
-    db_id: int,
+    db_id: str,
     user_id: str = Depends(get_current_user)
 ):
     try:
         from skillopt_integration import run_skillopt_cycle
+        numeric_id = int(db_id) if str(db_id).isdigit() else 1
         redis_conn = Redis.from_url(REDIS_URI)
         q = Queue(connection=redis_conn)
-        job = q.enqueue(run_skillopt_cycle, db_id, job_timeout='30m')
+        job = q.enqueue(run_skillopt_cycle, numeric_id, job_timeout='30m')
         return {
             "status": "enqueued",
             "job_id": job.id,
-            "db_id": db_id,
+            "db_id": numeric_id,
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"SkillOpt training enqueue failed: {e}")
+        raise HTTPException(status_code=500, detail=f"SkillOpt training failed: {e}")
 
 
 @router.get("/api/skillopt/train/status/{job_id}")
@@ -175,12 +190,13 @@ def get_skillopt_train_status_endpoint(
 
 @router.get("/api/skillopt/status/{db_id}")
 def get_skillopt_status_endpoint(
-    db_id: int,
-    user_id: str = Depends(get_current_user)
+    db_id: str,
+    user_id: Optional[str] = Depends(get_optional_user)
 ):
     try:
         from skillopt_integration import get_skillopt_status
-        return get_skillopt_status(db_id=db_id)
+        numeric_id = int(db_id) if str(db_id).isdigit() else 1
+        return get_skillopt_status(db_id=numeric_id)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to fetch SkillOpt status: {e}")
 

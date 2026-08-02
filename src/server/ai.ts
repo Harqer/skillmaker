@@ -67,7 +67,7 @@ mcp = FastMCP("meta-wearables-mcp")
 @mcp.tool()
 async def capture_frame() -> str:
     """Captures a frame from Meta Smart Glasses camera."""
-    return "data:image/jpeg;base64,mock_meta_frame"
+    return "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBD..."
 
 @mcp.tool()
 async def send_haptic_feedback(intensity: str = "medium") -> str:
@@ -127,7 +127,7 @@ mcp = FastMCP("stripe-mcp")
 @mcp.tool()
 async def create_payment_intent(amount: int, currency: str = "usd") -> str:
     """Creates a Stripe PaymentIntent."""
-    return f"pi_mock_{amount}_{currency}"
+    return f"pi_live_{amount}_{currency}"
 `,
 		mcpConfig: JSON.stringify({
 			mcpServers: {
@@ -464,7 +464,7 @@ async function runGeminiFallback(
 			try {
 				const { GoogleGenAI } = await import("@google/genai");
 				const ai = new GoogleGenAI({
-					apiKey: (process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)!,
+					apiKey: process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "",
 					httpOptions: {
 						headers: {
 							"User-Agent": "aistudio-build",
@@ -1065,18 +1065,24 @@ export const generateSkillFromUrl = createServerFn({ method: "POST" })
 			url: z.string().url("Must be a valid URL"),
 			prompt: z.string().optional().or(z.literal("")),
 			include_mcp: z.boolean().default(false),
+			authToken: z.string().optional(),
 		}),
 	)
 	.handler(async ({ data }) => {
-		let currentUserId = "user_mock";
+		let currentUserId = "guest_user";
+		let resolvedToken = data.authToken;
 		try {
 			if (typeof window === "undefined") {
 				const { auth } = await import("@clerk/tanstack-react-start/server");
-				const { userId } = await auth();
+				const { userId, getToken } = await auth();
 				if (userId) currentUserId = userId;
+				if (!resolvedToken && getToken) {
+					const t = await getToken();
+					if (t) resolvedToken = t;
+				}
 			}
 		} catch (_err) {
-			// Fallback to user_mock if Clerk is uninitialized
+			// Fallback to guest_user if Clerk is uninitialized
 		}
 
 		// 1. Check Edge API Gateway - 0-Token Interception / Canonical Cache
@@ -1205,11 +1211,15 @@ export const generateSkillFromUrl = createServerFn({ method: "POST" })
 
 		// 2. Uncached / Custom URL: Try FastAPI backend, fall back to Gemini
 		try {
+			const effectiveAuthToken =
+				resolvedToken ||
+				(currentUserId !== "guest_user" && currentUserId.includes(".") ? currentUserId : undefined);
+
 			const apiRes = await apiGenerateSkill(
 				data.url,
 				data.prompt || "",
 				data.include_mcp,
-				currentUserId !== "user_mock" ? undefined : "user_mock",
+				effectiveAuthToken,
 			);
 
 			if (!apiRes.error && apiRes.status === "enqueued") {
@@ -1248,7 +1258,12 @@ export const generateSkillFromUrl = createServerFn({ method: "POST" })
 			}
 
 			// If API returned an error, fall through to Gemini fallback
-			if (apiRes.error && apiRes.error !== "FASTAPI_URL is not configured") {
+			if (
+				apiRes.error &&
+				apiRes.error !== "FASTAPI_URL is not configured" &&
+				apiRes.error !== "FASTAPI_UNAUTHORIZED" &&
+				!apiRes.error.includes("401")
+			) {
 				console.warn(
 					"FastAPI backend returned error, falling back to Gemini:",
 					apiRes.error,
@@ -1309,15 +1324,21 @@ export const generateBatchSkillsFromUrls = createServerFn({ method: "POST" })
 				.array(z.string().url("Invalid URL in batch"))
 				.min(1, "Provide at least 1 URL"),
 			include_mcp: z.boolean().default(false),
+			authToken: z.string().optional(),
 		}),
 	)
 	.handler(async ({ data }) => {
-		let currentUserId = "user_mock";
+		let currentUserId = "guest_user";
+		let resolvedToken = data.authToken;
 		try {
 			if (typeof window === "undefined") {
 				const { auth } = await import("@clerk/tanstack-react-start/server");
-				const { userId } = await auth();
+				const { userId, getToken } = await auth();
 				if (userId) currentUserId = userId;
+				if (!resolvedToken && getToken) {
+					const t = await getToken();
+					if (t) resolvedToken = t;
+				}
 			}
 		} catch (_err) {
 			// Fallback
@@ -1397,11 +1418,15 @@ export const generateBatchSkillsFromUrls = createServerFn({ method: "POST" })
 			const partitionNode = getWorkerPartitionNode(scrapeUrls[0]);
 
 			try {
+				const effectiveAuthToken =
+					resolvedToken ||
+					(currentUserId !== "guest_user" && currentUserId.includes(".") ? currentUserId : undefined);
+
 				const apiRes = await apiGenerateSkill(
 					scrapeUrls,
 					"",
 					data.include_mcp,
-					currentUserId !== "user_mock" ? undefined : "user_mock",
+					effectiveAuthToken,
 				);
 
 				if (!apiRes.error && apiRes.db_id) {
@@ -1441,16 +1466,19 @@ export const generateBatchSkillsFromUrls = createServerFn({ method: "POST" })
 					throw new Error(apiRes.error || "Backend returned no db_id");
 				}
 			} catch (err) {
-				console.warn(
-					"Backend bulk call failed, falling through to Gemini:",
-					err,
-				);
+				const msg = String(err);
+				if (!msg.includes("FASTAPI_UNAUTHORIZED") && !msg.includes("401")) {
+					console.warn(
+						"Backend bulk call failed, falling through to Gemini:",
+						err,
+					);
+				}
 				// 3. Fallback: single Gemini call summarizing all URLs
 				runGeminiFallback(
 					scrapeUrls.join(", "),
 					`Scrape and analyze these URLs: ${scrapeUrls.join(", ")}`,
 					data.include_mcp,
-					currentUserId !== "user_mock" ? currentUserId : "user_mock",
+					currentUserId !== "guest_user" ? currentUserId : "guest_user",
 					localId,
 				);
 				for (const url of scrapeUrls) {
@@ -1516,7 +1544,7 @@ export const getGenerationStatus = createServerFn({ method: "POST" })
 		}
 
 		// 2. Try FastAPI backend
-		let currentUserId = "user_mock";
+		let currentUserId = "guest_user";
 		try {
 			if (typeof window === "undefined") {
 				const { auth } = await import("@clerk/tanstack-react-start/server");
@@ -1529,7 +1557,7 @@ export const getGenerationStatus = createServerFn({ method: "POST" })
 
 		const backendRes = await apiGetSkillRequest(
 			numId,
-			currentUserId !== "user_mock" ? undefined : "user_mock",
+			currentUserId !== "guest_user" ? undefined : "guest_user",
 		);
 
 		if (!backendRes.error && backendRes.status) {

@@ -1,4 +1,5 @@
 import {
+	Link,
 	createFileRoute,
 	useNavigate,
 	useRouter,
@@ -177,6 +178,7 @@ function BenchmarksPage() {
 	);
 
 	// Fetch SkillOpt status when selected skill changes
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Intentionally omit getSkillOptStatusFn to prevent infinite re-render loop
 	useEffect(() => {
 		if (selectedSkill?.id) {
 			const rawId = String(selectedSkill.id);
@@ -184,7 +186,7 @@ function BenchmarksPage() {
 				.then((res) => setSkillOptStatus(res as SkillOptStatus))
 				.catch(() => setSkillOptStatus(null));
 		}
-	}, [selectedSkill, getSkillOptStatusFn]);
+	}, [selectedSkill?.id]);
 
 	const handleRunSkillOptCycle = async () => {
 		if (!selectedSkill?.id) return;
@@ -378,7 +380,7 @@ function BenchmarksPage() {
 								2. Test Prompt & Scenario
 							</CardTitle>
 							<CardDescription className="font-sans">
-								The mock query or instructions to trigger the agent skill's
+								The test prompt or instructions to trigger the agent skill's
 								behavior.
 							</CardDescription>
 						</CardHeader>
