@@ -7,6 +7,7 @@ import {
 	useEffect,
 	useReducer,
 } from "react";
+import { useAuth } from "@/components/auth/ClerkHelpers";
 import type { Blueprint, Skill, SkillsState } from "@/features/skills/types";
 import {
 	generateBatchSkillsFromUrls,
@@ -22,8 +23,13 @@ interface SkillsContextType {
 		url: string,
 		prompt: string,
 		includeMcp: boolean,
+		customToken?: string,
 	) => Promise<void>;
-	compileBatchSkills: (urls: string[], includeMcp: boolean) => Promise<void>;
+	compileBatchSkills: (
+		urls: string[],
+		includeMcp: boolean,
+		customToken?: string,
+	) => Promise<void>;
 	seedBlueprint: (blueprint: Blueprint) => Promise<string | undefined>;
 	clearError: () => void;
 	resetCompilation: () => void;
@@ -34,6 +40,7 @@ const SkillsContext = createContext<SkillsContextType | undefined>(undefined);
 export function SkillsProvider({ children }: { children: ReactNode }) {
 	const [state, dispatch] = useReducer(skillsReducer, initialSkillsState);
 	const router = useRouter();
+	const { getToken } = useAuth();
 
 	const generateFn = useServerFn(generateSkillFromUrl);
 	const generateBatchFn = useServerFn(generateBatchSkillsFromUrls);
@@ -44,14 +51,22 @@ export function SkillsProvider({ children }: { children: ReactNode }) {
 		url: string,
 		prompt: string,
 		includeMcp: boolean,
+		customToken?: string,
 	) => {
 		dispatch({ type: "START_COMPILATION" });
 		try {
+			let tokenToPass = customToken;
+			if (!tokenToPass) {
+				const userToken = await getToken();
+				if (userToken) tokenToPass = userToken;
+			}
+
 			const res = await generateFn({
 				data: {
 					url,
 					prompt,
 					include_mcp: includeMcp,
+					authToken: tokenToPass || undefined,
 				},
 			});
 
@@ -77,13 +92,24 @@ export function SkillsProvider({ children }: { children: ReactNode }) {
 		}
 	};
 
-	const compileBatchSkills = async (urls: string[], includeMcp: boolean) => {
+	const compileBatchSkills = async (
+		urls: string[],
+		includeMcp: boolean,
+		customToken?: string,
+	) => {
 		dispatch({ type: "START_COMPILATION" });
 		try {
+			let tokenToPass = customToken;
+			if (!tokenToPass) {
+				const userToken = await getToken();
+				if (userToken) tokenToPass = userToken;
+			}
+
 			const res = await generateBatchFn({
 				data: {
 					urls,
 					include_mcp: includeMcp,
+					authToken: tokenToPass || undefined,
 				},
 			});
 
@@ -127,6 +153,7 @@ export function SkillsProvider({ children }: { children: ReactNode }) {
 	const resetCompilation = () => dispatch({ type: "RESET_COMPILATION" });
 
 	// Polling telemetry loop
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Intentionally omit unstable pollStatusFn and router to prevent infinite re-render loop
 	useEffect(() => {
 		const pollingId = state.pollingDbId;
 		if (state.status !== "polling" || !pollingId) return;
@@ -205,7 +232,7 @@ export function SkillsProvider({ children }: { children: ReactNode }) {
 			isCancelled = true;
 			clearInterval(intervalId);
 		};
-	}, [state.status, state.pollingDbId, pollStatusFn, router]);
+	}, [state.status, state.pollingDbId]);
 
 	return (
 		<SkillsContext.Provider

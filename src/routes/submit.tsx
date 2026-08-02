@@ -60,6 +60,7 @@ function SubmitPage() {
 		},
 	});
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Run once on mount to check pending skill
 	useEffect(() => {
 		try {
 			const pending = localStorage.getItem("pendingGeneratedSkill");
@@ -80,7 +81,7 @@ function SubmitPage() {
 		} catch (e) {
 			console.error("Failed to parse pending generated skill:", e);
 		}
-	}, [manualForm]);
+	}, []);
 
 	const onManualSubmit = async (data: ManualFormValues) => {
 		setServerError(null);

@@ -81,4 +81,16 @@ def get_context_tools() -> list[Any]:
         except Exception as e:
             return f"Failed to query Databricks AI Search: {e}"
 
-    return [query_business_context, search_deep_wiki_memory, query_databricks_ai_search]
+    @tool
+    def query_recursive_language_model(corpus: str, task: str) -> str:
+        """Process massive documentation corpora (up to 10M+ tokens) using MIT's Recursive Language Model (RLM) framework without context rot."""
+        try:
+            from rlm_engine import recursive_research_query
+            import json
+
+            res = recursive_research_query(corpus=corpus, task=task)
+            return json.dumps(res, indent=2)
+        except Exception as e:
+            return f"Failed to execute RLM query: {e}"
+
+    return [query_business_context, search_deep_wiki_memory, query_databricks_ai_search, query_recursive_language_model]

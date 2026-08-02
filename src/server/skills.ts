@@ -24,20 +24,23 @@ export const submitSkillSchema = z.object({
 	sourceUrl: z.string().optional().nullable(),
 });
 
-// ── Auth helper ───────────────────────────────────────────────────────────────
-// Seamless Guest/Fallback Support when Clerk is not authenticated or blocked.
-async function requireAuth() {
+async function getAuthToken(): Promise<string | undefined> {
 	try {
-		if (typeof window !== "undefined") return "user_mock";
 		const { auth } = await import("@clerk/tanstack-react-start/server");
 		const { userId } = await auth();
-		if (!userId) {
-			return "user_mock";
-		}
-		return userId;
-	} catch (_err) {
-		return "user_mock";
+		return userId || undefined;
+	} catch {
+		return undefined;
 	}
+}
+
+// ── Auth helper ───────────────────────────────────────────────────────────────
+async function requireAuth(): Promise<string> {
+	const token = await getAuthToken();
+	if (!token) {
+		throw new Error("Unauthorized: Please sign in to perform this action.");
+	}
+	return token;
 }
 
 // ── Upsert the Clerk user into Neon `users` table ────────────────────────────
@@ -65,8 +68,8 @@ export const syncClerkUser = createServerFn({ method: "POST" })
 	)
 	.handler(async ({ data }) => {
 		const userId = await requireAuth();
-		if (userId === "user_mock") {
-			return { success: false, reason: "Mock user or not authenticated" };
+		if (userId === "guest_user") {
+			return { success: false, reason: "Guest user or not authenticated" };
 		}
 
 		try {
@@ -204,6 +207,15 @@ export const getSkills = createServerFn({ method: "GET" })
 export const getSkillById = createServerFn({ method: "GET" })
 	.validator((skillId: string) => skillId)
 	.handler(async ({ data }) => {
+		if (!data) throw new Error("Skill ID is required");
+
+		// 1. Check inMemorySkills by exact ID match
+		const memoryMatch = inMemorySkills.find(
+			(s: { id?: string }) => String(s.id) === String(data),
+		);
+		if (memoryMatch) return memoryMatch;
+
+		// 2. Query database for skill by ID
 		try {
 			const result = await db
 				.select()
@@ -211,20 +223,20 @@ export const getSkillById = createServerFn({ method: "GET" })
 				.where(eq(skills.id, data))
 				.limit(1);
 
-			const skill =
-				result[0] || inMemorySkills.find((s: { id?: string }) => s.id === data);
-			if (!skill) throw new Error("Skill not found");
-
-			return skill;
+			if (result[0]) return result[0];
 		} catch (err) {
-			console.warn(
-				"Failed to fetch skill by ID, checking inMemorySkills:",
-				err,
-			);
-			const skill = inMemorySkills.find((s: { id?: string }) => s.id === data);
-			if (skill) return skill;
-			throw err;
+			console.warn("Database skill lookup failed:", err);
 		}
+
+		// 3. Match by 1-based index in inMemorySkills if numeric ID passed
+		if (!Number.isNaN(Number(data))) {
+			const idx = Number(data) - 1;
+			if (idx >= 0 && idx < inMemorySkills.length) {
+				return inMemorySkills[idx];
+			}
+		}
+
+		throw new Error(`Skill not found with ID '${data}'`);
 	});
 
 // ── upvoteSkill ───────────────────────────────────────────────────────────────
@@ -349,7 +361,7 @@ export const getSkillOptStatus = createServerFn({ method: "GET" })
 			};
 		}
 
-		const authToken = await requireAuth();
+		const authToken = await getAuthToken();
 		const result = await apiGetSkillOptStatus(dbId, authToken);
 
 		if (result.error) {

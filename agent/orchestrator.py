@@ -214,22 +214,38 @@ def scraper_analyze_node(state: ScraperState):
         session_id=thread_id, text=f"Documentation for {url}:\n{scraped_text}"
     )
 
-    # Retrieve pruned context with bounded limit
-    pruned_results = agent_memory.search_long_term_memory(
-        query=f"{state['task_prompt']} API endpoints requirements", limit=10
-    )
-    if pruned_results:
+    # Retrieve pruned context with bounded limit or execute RLM REPL Infinite Context processing
+    if len(scraped_text) > 25000:
+        print(f"[scraper_sub_agent] Large corpus detected ({len(scraped_text):,} chars). Initiating RLM REPL Infinite Context processing...")
         try:
-            pruned_context = "\n\n".join(
-                [
-                    res.get("text", "") if isinstance(res, dict) else res.text
-                    for res in pruned_results
-                ]
+            from rlm_engine import recursive_research_query
+            rlm_out = recursive_research_query(
+                corpus=scraped_text,
+                task=f"Extract all API endpoints, data models, SDK functions, CLI commands, and MCP tools for {url}."
             )
-        except Exception:
+            if rlm_out.get("success") and rlm_out.get("answer"):
+                pruned_context = f"[RLM REPL Synthesis]\n{rlm_out['answer']}\n\n[Excerpt]\n{scraped_text[:5000]}"
+            else:
+                pruned_context = scraped_text[:12000]
+        except Exception as rlm_err:
+            print(f"[scraper_sub_agent] RLM REPL fallback warning: {rlm_err}")
             pruned_context = scraped_text[:12000]
     else:
-        pruned_context = scraped_text[:12000]
+        pruned_results = agent_memory.search_long_term_memory(
+            query=f"{state['task_prompt']} API endpoints requirements", limit=10
+        )
+        if pruned_results:
+            try:
+                pruned_context = "\n\n".join(
+                    [
+                        res.get("text", "") if isinstance(res, dict) else res.text
+                        for res in pruned_results
+                    ]
+                )
+            except Exception:
+                pruned_context = scraped_text[:12000]
+        else:
+            pruned_context = scraped_text[:12000]
 
     # Use structured output to smartly analyze & extract provided skills/MCP setups
     analyzer_llm = llm.with_structured_output(DocScraperAnalysis)

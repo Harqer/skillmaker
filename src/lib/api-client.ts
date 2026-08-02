@@ -1,10 +1,21 @@
 const FASTAPI_URL =
 	process.env.FASTAPI_URL ||
 	process.env.VITE_FASTAPI_URL ||
-	"";
+	"http://127.0.0.1:8000";
 
 export interface ApiError {
 	error: string;
+}
+
+async function getEffectiveToken(authToken?: string): Promise<string | undefined> {
+	if (authToken && authToken !== "guest_user" && authToken.split(".").length === 3) {
+		return authToken;
+	}
+	const envToken =
+		process.env.FASTAPI_AUTH_TOKEN ||
+		process.env.VITE_FASTAPI_AUTH_TOKEN ||
+		process.env.BEARER_TOKEN;
+	return envToken || undefined;
 }
 
 async function apiPost<T>(
@@ -19,8 +30,9 @@ async function apiPost<T>(
 		const headers: Record<string, string> = {
 			"Content-Type": "application/json",
 		};
-		if (authToken && authToken.split(".").length === 3) {
-			headers.Authorization = `Bearer ${authToken}`;
+		const token = await getEffectiveToken(authToken);
+		if (token) {
+			headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
 		}
 		const res = await fetch(`${FASTAPI_URL}${path}`, {
 			method: "POST",
@@ -29,6 +41,9 @@ async function apiPost<T>(
 		});
 		if (!res.ok) {
 			const text = await res.text();
+			if (res.status === 401) {
+				return { error: "FASTAPI_UNAUTHORIZED" } as T & { error: string };
+			}
 			return { error: `API error ${res.status}: ${text}` } as T & {
 				error: string;
 			};
@@ -50,12 +65,16 @@ async function apiGet<T>(
 	}
 	try {
 		const headers: Record<string, string> = {};
-		if (authToken && authToken.split(".").length === 3) {
-			headers.Authorization = `Bearer ${authToken}`;
+		const token = await getEffectiveToken(authToken);
+		if (token) {
+			headers.Authorization = token.startsWith("Bearer ") ? token : `Bearer ${token}`;
 		}
 		const res = await fetch(`${FASTAPI_URL}${path}`, { headers });
 		if (!res.ok) {
 			const text = await res.text();
+			if (res.status === 401) {
+				return { error: "FASTAPI_UNAUTHORIZED" } as T & { error: string };
+			}
 			return { error: `API error ${res.status}: ${text}` } as T & {
 				error: string;
 			};

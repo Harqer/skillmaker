@@ -157,7 +157,7 @@ export function SkillsLibraryGrid({
 								description={skill.description}
 								content={skill.content}
 								authorName={
-									skill.authorId === "user_mock" ? "You (Guest)" : "You"
+									skill.authorId === "guest_user" ? "You (Guest)" : "You"
 								}
 								tags={skill.tags}
 								upvotes={skill.upvotes}
@@ -221,7 +221,7 @@ export function SkillsLibraryGrid({
 								description={skill.description}
 								content={skill.content}
 								authorName={
-									skill.authorId === "user_mock"
+									skill.authorId === "guest_user"
 										? "Guest"
 										: skill.authorId?.slice(0, 8) || "Contributor"
 								}

@@ -93,36 +93,37 @@ def _optional(key: str, default: str = "") -> str:
 DATABASE_URL: str = _require("DATABASE_URL")
 
 # ── Redis ─────────────────────────────────────────────────────────────────────
-REDIS_URI: str = _require("REDIS_URI")
+REDIS_URI: str = _optional("REDIS_URI", "redis://default:tG26bjynks3Kf2jWk0LKH7A4kpGLAd1b@instrument-group-chartreuse-54560.db.redis.io:17884")
 
 # ── LLM / AI ─────────────────────────────────────────────────────────────────
 GEMINI_API_KEY: str = _require("GEMINI_API_KEY")
-LANGSMITH_API_KEY: str = _require("LANGSMITH_API_KEY")
+LANGSMITH_API_KEY: str = _optional("LANGSMITH_API_KEY", "")
 LANGSERVE_API_KEY: str = _optional("LANGSERVE_API_KEY")
-LANGCACHE_TOKEN: str = _optional("LANGCACHE_TOKEN")
+LANGCACHE_TOKEN: str = _optional("LANGCACHE_TOKEN", "A57lmhl12tq1jbw5ob1ag7rdchlqorai9022x8zhi8n6r0bft9")
+LANGCACHE_SERVER_URL: str = _optional("LANGCACHE_SERVER_URL", "https://aws-us-east-1.langcache.redis.io")
+LANGCACHE_CACHE_ID: str = _optional("LANGCACHE_CACHE_ID", "4ad68098d294470db6ed70b1d0191b67")
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
-CLERK_SECRET_KEY: str = _require("CLERK_SECRET_KEY")
+CLERK_SECRET_KEY: str = _optional("CLERK_SECRET_KEY", "")
 CLERK_WEBHOOK_SECRET: str = _optional("CLERK_WEBHOOK_SECRET")
 
 # ── External scraping APIs ────────────────────────────────────────────────────
-FIRECRAWL_API_KEY: str = _optional("FIRECRAWL_API_KEY")
+FIRECRAWL_API_KEY: str = _optional("FIRECRAWL_API_KEY", "fc-73146d94402b4894bdef308698687cc5")
 SIMPLESCRAPER_API_KEY: str = _optional("SIMPLESCRAPER_API_KEY")
 JINA_API_KEY: str = _optional("JINA_API_KEY")
 
 # ── Redis Agent Memory (managed service: memory.redis.io) ────────────────────
-# Uses the official `redis-agent-memory` Python SDK.
+# Uses the official `@redis-iris/agent-memory` / `redis-agent-memory` SDK.
 #   AGENT_MEMORY_BASE_URL  — e.g. https://gcp-us-east4.memory.redis.io
 #   AGENT_MEMORY_STORE_ID  — the store UUID from the Redis Agent Memory dashboard
 #   AGENT_MEMORY_TOKEN     — the mem1_... API key from the dashboard
-# Leave all empty to disable agent memory gracefully (non-fatal).
-AGENT_MEMORY_BASE_URL: str = _optional("AGENT_MEMORY_BASE_URL", "")
-AGENT_MEMORY_STORE_ID: str = _optional("AGENT_MEMORY_STORE_ID", "")
-AGENT_MEMORY_TOKEN: str = _optional("AGENT_MEMORY_TOKEN")
+AGENT_MEMORY_BASE_URL: str = _optional("AGENT_MEMORY_BASE_URL", "https://gcp-us-east4.memory.redis.io")
+AGENT_MEMORY_STORE_ID: str = _optional("AGENT_MEMORY_STORE_ID", "87cdc85b290949beb3cd62ddddb6f313")
+AGENT_MEMORY_TOKEN: str = _optional("AGENT_MEMORY_TOKEN", "A57lmhl12tq1jbw5ob1ag7rdchlqorai9022x8zhi8n6r0bft9")
 
 # ── Context Retriever ─────────────────────────────────────────────────────────
-# Required when context_retriever.py is used. Set in Infisical.
-CTX_AGENT_KEY: str = _optional("CTX_AGENT_KEY", "")
+# Required when context_retriever.py is used.
+CTX_AGENT_KEY: str = _optional("CTX_AGENT_KEY", "A57lmhl12tq1jbw5ob1ag7rdchlqorai9022x8zhi8n6r0bft9")
 
 # ── SkillOpt ─────────────────────────────────────────────────────────────────
 # Path to the checked-out SkillOpt repo root, OR derived from the installed

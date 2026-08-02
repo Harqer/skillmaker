@@ -144,7 +144,7 @@ if __name__ == "__main__":
 \`\`\``,
 		}),
 		tags: ["Expo", "React Native", "Mobile", "SDK"],
-		authorId: "user_mock",
+		authorId: "usr_community_curator",
 		upvotes: 42,
 		mcpScript: `# Expo MCP Tool
 from mcp.server.fastmcp import FastMCP
@@ -253,7 +253,7 @@ STRIPE_WEBHOOK_SECRET=whsec_...
 \`\`\``,
 		}),
 		tags: ["Stripe", "Payments", "Billing", "SDK"],
-		authorId: "user_mock",
+		authorId: "usr_community_curator",
 		upvotes: 38,
 		sourceUrl: "https://stripe.com/docs",
 		createdAt: new Date().toISOString(),
@@ -327,7 +327,7 @@ export default nextConfig;
 \`\`\``,
 		}),
 		tags: ["Next.js", "App Router", "React", "Server Actions"],
-		authorId: "user_mock",
+		authorId: "usr_community_curator",
 		upvotes: 35,
 		sourceUrl: "https://nextjs.org/docs",
 		createdAt: new Date().toISOString(),
@@ -464,7 +464,7 @@ sentinel:
 \`\`\``,
 		}),
 		tags: ["Raven", "EverOS", "Deep Research", "Agent Harness", "Production"],
-		authorId: "user_mock",
+		authorId: "usr_community_curator",
 		upvotes: 42,
 		sourceUrl: "https://raven.evermind.ai",
 		createdAt: new Date().toISOString(),
@@ -543,7 +543,7 @@ print("Validating ADK LlmAgent structure...")
 \`\`\``,
 		}),
 		tags: ["Google ADK", "Multi-Agent", "Gemini", "LlmAgent"],
-		authorId: "user_mock",
+		authorId: "usr_community_curator",
 		upvotes: 29,
 		sourceUrl: "https://google.github.io/adk",
 		createdAt: new Date().toISOString(),
@@ -714,7 +714,7 @@ wf = workflow.Workflows()
 \`\`\``,
 		}),
 		tags: ["Vercel", "Workflows", "Python", "TypeScript", "Durable Workflows"],
-		authorId: "user_mock",
+		authorId: "usr_community_curator",
 		upvotes: 42,
 		sourceUrl: "https://vercel.com/docs/workflows",
 		createdAt: new Date().toISOString(),
@@ -838,7 +838,7 @@ export default defineTool({
 \`\`\``,
 		}),
 		tags: ["Vercel", "EVE", "Agent Specification", "Skills", "Tools"],
-		authorId: "user_mock",
+		authorId: "usr_community_curator",
 		upvotes: 58,
 		sourceUrl: "https://vercel.com/docs/eve",
 		createdAt: new Date().toISOString(),
@@ -847,10 +847,10 @@ export default defineTool({
 // biome-ignore lint/suspicious/noExplicitAny: custom fallback
 export const inMemoryUsers: any[] = [
 	{
-		id: "user_mock",
-		email: "user@clerk.user",
-		firstName: "Mock",
-		lastName: "User",
+		id: "guest_user",
+		email: "guest@eve.agent",
+		firstName: "Guest",
+		lastName: "Developer",
 		createdAt: new Date(),
 	},
 ];
@@ -877,15 +877,14 @@ function _extractConditionString(condition: any): string {
 // Extract column name and value from a Drizzle eq() condition AST.
 // Drizzle's eq(column, value) → SQL`${column} = ${value}` stores
 // fragments in queryChunks: [Column, " = ", Param].
-// biome-ignore lint/suspicious/noExplicitAny: custom query helper
 function extractColumnFilter(
-	condition: any,
-): { column: string; value: any } | null {
-	if (!condition) return null;
-	const chunks = condition.queryChunks;
+	condition: unknown,
+): { column: string; value: unknown } | null {
+	if (!condition || typeof condition !== "object") return null;
+	const chunks = (condition as { queryChunks?: unknown[] }).queryChunks;
 	if (!Array.isArray(chunks)) return null;
 	let columnName: string | null = null;
-	let value: any;
+	let value: unknown;
 	for (const chunk of chunks) {
 		if (chunk && typeof chunk === "object") {
 			// Drizzle Column — has name and table/tableName
@@ -933,8 +932,8 @@ export function getDb(): any {
 								inMemoryUsers.push({
 									id: v.id,
 									email: v.email || `${v.id}@clerk.user`,
-									firstName: v.firstName || "Mock",
-									lastName: v.lastName || "User",
+									firstName: v.firstName || "Guest",
+									lastName: v.lastName || "Developer",
 									createdAt: new Date(),
 								});
 							}
@@ -945,7 +944,7 @@ export function getDb(): any {
 								description: v.description,
 								content: v.content,
 								tags: v.tags || [],
-								authorId: v.authorId || "user_mock",
+								authorId: v.authorId || "guest_user",
 								upvotes: v.upvotes || 0,
 								mcpScript: v.mcpScript || null,
 								mcpConfig: v.mcpConfig || null,
@@ -958,7 +957,7 @@ export function getDb(): any {
 					}
 					const resultObj = {
 						onConflictDoNothing: () => resultObj,
-						// biome-ignore lint/suspicious/noExplicitAny: custom mock chain
+						// biome-ignore lint/suspicious/noExplicitAny: custom query builder chain
 						onConflictDoUpdate: (_config: any) => resultObj,
 						returning: async () => {
 							const last = inMemorySkills[inMemorySkills.length - 1];
@@ -996,7 +995,7 @@ export function getDb(): any {
 							const filter = extractColumnFilter(condition);
 							if (filter) {
 								list = list.filter(
-									(item: any) =>
+									(item: Record<string, unknown>) =>
 										String(item[filter.column]) === String(filter.value),
 								);
 							}
@@ -1018,21 +1017,21 @@ export function getDb(): any {
 		update: (table: any) => {
 			return {
 				// biome-ignore lint/suspicious/noExplicitAny: custom query builder interface
-				set: (values: any) => {
+				set: (values: Record<string, unknown>) => {
 					return {
 						// biome-ignore lint/suspicious/noExplicitAny: custom query builder interface
 						where: (condition: any) => {
 							const filter = extractColumnFilter(condition);
 							if (filter && table === schema.skills) {
 								const item = inMemorySkills.find(
-									(s: any) => String(s[filter.column]) === String(filter.value),
+									(s: Record<string, unknown>) => String(s[filter.column]) === String(filter.value),
 								);
 								if (item) {
 									for (const [key, val] of Object.entries(values)) {
 										if (key === "upvotes" && typeof val === "object") {
-											item.upvotes = (item.upvotes || 0) + 1;
+											item.upvotes = ((item.upvotes as number) || 0) + 1;
 										} else if (typeof val !== "object") {
-											(item as any)[key] = val;
+											(item as Record<string, unknown>)[key] = val;
 										}
 									}
 								}
@@ -1053,12 +1052,12 @@ export function getDb(): any {
 	return cachedDb;
 }
 
+// biome-ignore lint/suspicious/noExplicitAny: Proxy wrapper for lazy initialization
 export const db = new Proxy(
 	{},
 	{
 		get(_target, prop) {
 			return getDb()[prop];
 		},
-		// biome-ignore lint/suspicious/noExplicitAny: Proxy wrapper for lazy initialization
 	},
 ) as any;

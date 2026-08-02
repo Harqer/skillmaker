@@ -9,7 +9,7 @@ import {
 } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import posthog from "posthog-js";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
 	SafeClerkProvider,
 	SignedIn,
@@ -22,6 +22,7 @@ import { ClerkErrorBoundary } from "@/components/ErrorBoundary";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { ThemeProvider } from "@/components/layout/ThemeContext";
 import { Button } from "@/components/ui/button";
+import { SkillsProvider } from "@/features/skills/context/SkillsContext";
 import { syncClerkUser } from "@/server/skills";
 
 // Safe memory storage fallback helper for sandboxed iframe environments
@@ -185,62 +186,64 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 								publishableKey={PUBLISHABLE_KEY}
 								afterSignOutUrl="/"
 							>
-								<ClerkUserSyncer />
-								<div className="flex h-screen w-full bg-background font-sans antialiased text-foreground overflow-hidden">
-									<Sidebar />
-									<div className="flex flex-col flex-1 overflow-y-auto">
-										<header className="p-8 pb-0">
-											<div className="flex items-center justify-between">
-												<Link
-													to="/"
-													className="flex items-center gap-3 group hover:opacity-90 transition-opacity cursor-pointer z-20"
-												>
-													<img
-														src="/peacock_logo.jpg"
-														alt="Raven Peacock Logo"
-														className="w-12 h-12 object-cover rounded-xl border border-border/60 shadow-sm group-hover:scale-105 transition-transform"
-													/>
-													<div className="flex flex-col">
-														<span className="font-bold text-lg leading-tight tracking-tight text-foreground group-hover:text-primary transition-colors">
-															Raven
-														</span>
-														<span className="text-xs italic text-muted-foreground font-serif">
-															create your own expert agent
-														</span>
-													</div>
-												</Link>
-												<div
-													className="flex items-center gap-4"
-													suppressHydrationWarning
-												>
-													<SignedIn>
-														<UserButton
-															afterSignOutUrl="/"
-															appearance={{
-																elements: {
-																	avatarBox:
-																		"w-8 h-8 rounded-full border border-border",
-																},
-															}}
+								<SkillsProvider>
+									<ClerkUserSyncer />
+									<div className="flex h-screen w-full bg-background font-sans antialiased text-foreground overflow-hidden">
+										<Sidebar />
+										<div className="flex flex-col flex-1 overflow-y-auto">
+											<header className="p-8 pb-0">
+												<div className="flex items-center justify-between">
+													<Link
+														to="/"
+														className="flex items-center gap-3 group hover:opacity-90 transition-opacity cursor-pointer z-20"
+													>
+														<img
+															src="/peacock_logo.jpg"
+															alt="Raven Peacock Logo"
+															className="w-12 h-12 object-cover rounded-xl border border-border/60 shadow-sm group-hover:scale-105 transition-transform"
 														/>
-													</SignedIn>
-													<SignedOut>
-														<SignInButton mode="modal">
-															<Button
-																size="sm"
-																className="text-xs font-semibold h-8 rounded-md bg-[#FF5F1F] hover:bg-[#E04F17] text-white border-none shadow-sm hover:shadow transition-all duration-200"
-																suppressHydrationWarning
-															>
-																Sign In
-															</Button>
-														</SignInButton>
-													</SignedOut>
+														<div className="flex flex-col">
+															<span className="font-bold text-lg leading-tight tracking-tight text-foreground group-hover:text-primary transition-colors">
+																Raven
+															</span>
+															<span className="text-xs italic text-muted-foreground font-serif">
+																create your own expert agent
+															</span>
+														</div>
+													</Link>
+													<div
+														className="flex items-center gap-4"
+														suppressHydrationWarning
+													>
+														<SignedIn>
+															<UserButton
+																afterSignOutUrl="/"
+																appearance={{
+																	elements: {
+																		avatarBox:
+																			"w-8 h-8 rounded-full border border-border",
+																	},
+																}}
+															/>
+														</SignedIn>
+														<SignedOut>
+															<SignInButton mode="modal">
+																<Button
+																	size="sm"
+																	className="text-xs font-semibold h-8 rounded-md bg-[#FF5F1F] hover:bg-[#E04F17] text-white border-none shadow-sm hover:shadow transition-all duration-200"
+																	suppressHydrationWarning
+																>
+																	Sign In
+																</Button>
+															</SignInButton>
+														</SignedOut>
+													</div>
 												</div>
-											</div>
-										</header>
-										<main className="flex-1">{children}</main>
+											</header>
+											<main className="flex-1">{children}</main>
+										</div>
 									</div>
-								</div>
+								</SkillsProvider>
 							</SafeClerkProvider>
 						</ThemeProvider>
 					</ClerkErrorBoundary>
@@ -254,10 +257,13 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 function ClerkUserSyncer() {
 	const { isLoaded, isSignedIn, user } = useUser();
 	const syncFn = useServerFn(syncClerkUser);
+	const syncedRef = useRef<string | null>(null);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: Intentionally omit syncFn and user object to prevent infinite re-render loop
 	useEffect(() => {
-		if (isLoaded && isSignedIn && user) {
-			const email = user.emailAddresses[0]?.emailAddress;
+		if (isLoaded && isSignedIn && user && user.id !== syncedRef.current) {
+			syncedRef.current = user.id;
+			const email = user.emailAddresses?.[0]?.emailAddress;
 			if (email) {
 				syncFn({
 					data: {
@@ -270,7 +276,7 @@ function ClerkUserSyncer() {
 				});
 			}
 		}
-	}, [isLoaded, isSignedIn, user, syncFn]);
+	}, [isLoaded, isSignedIn, user?.id]);
 
 	return null;
 }
