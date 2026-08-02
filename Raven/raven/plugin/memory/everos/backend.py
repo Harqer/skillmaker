@@ -292,14 +292,16 @@ class EverosBackend:
             from raven.plugin.memory.everos._server import ensure_everos_server
 
             base_url = self._config.get("base_url") or "http://localhost:18791"
+            server_ok = False
             try:
-                await ensure_everos_server(base_url)
+                server_ok = await ensure_everos_server(base_url)
             except Exception as e:
-                self._logger.error(
-                    "EverosBackend: failed to start EverOS server (%s)",
+                self._logger.warning(
+                    "EverosBackend: failed to start EverOS server (%s) — falling back to no-op memory",
                     e,
                 )
-                raise
+            if not server_ok:
+                self._adapter = _NoOpAdapter()
 
     async def stop(self) -> None:
         self._logger.info("EverosBackend.stop")

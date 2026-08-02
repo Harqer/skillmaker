@@ -46,7 +46,20 @@ def _start_server_if_unlocked(port: str) -> bool:
     """
     everos = shutil.which("everos")
     if not everos:
-        raise RuntimeError("everos not found. Please install the everos CLI.")
+        logger.warning("everos CLI not found; memory persistence disabled (no-op fallback)")
+        return False
+    import subprocess
+    # Quick check: if `everos --help` hangs the server binary is broken;
+    # skip trying to start it.
+    try:
+        r = subprocess.run(
+            [everos, "--help"],
+            capture_output=True,
+            timeout=5,
+        )
+    except (subprocess.TimeoutExpired, OSError):
+        logger.warning("everos CLI appears broken (--help timeout); falling back to no-op memory")
+        return False
 
     try:
         with file_lock(_lock_path(), blocking=False):
@@ -70,13 +83,18 @@ async def ensure_everos_server(
     base_url: str = "http://localhost:18791",
     *,
     timeout: float = 30.0,
-) -> None:
+) -> bool:
+    """Returns True if a healthy EverOS server is reachable, False otherwise."""
     if await asyncio.to_thread(_probe_health, base_url):
         logger.info("everos server already running at {}", base_url)
-        return
+        return True
 
     port = _extract_port(base_url)
-    await asyncio.to_thread(_start_server_if_unlocked, port)
+    launched = await asyncio.to_thread(_start_server_if_unlocked, port)
+
+    if not launched:
+        logger.warning("no EverOS server was launched; memory will use no-op fallback")
+        return False
 
     elapsed = 0.0
     while elapsed < timeout:
@@ -84,7 +102,7 @@ async def ensure_everos_server(
         elapsed += _POLL_INTERVAL
         if await asyncio.to_thread(_probe_health, base_url):
             logger.info("everos server ready at {}", base_url)
-            return
+            return True
 
     raise RuntimeError(
         f"EverOS server failed to start within {timeout}s at {base_url}. "

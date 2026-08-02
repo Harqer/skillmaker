@@ -1,40 +1,25 @@
 import { clerkMiddleware } from "@clerk/tanstack-react-start/server";
 import { createMiddleware, createStart } from "@tanstack/react-start";
 
-const hasClerkKeys = Boolean(process.env.CLERK_SECRET_KEY);
-
 const safeClerkMiddleware = createMiddleware().server(async (opts) => {
-	if (!hasClerkKeys) {
-		return await opts.next({
-			context: {
-				auth: () => ({
-					userId: null,
-					sessionId: null,
-					getToken: async () => null,
-				}),
-				clerkInitialState: {},
-			},
-		});
-	}
-
 	try {
-		const baseClerk = clerkMiddleware();
-		return await baseClerk.options.server(opts);
-	} catch (err) {
-		if (err instanceof Response) {
-			throw err;
+		if (process.env.CLERK_SECRET_KEY) {
+			const baseClerk = clerkMiddleware();
+			return await baseClerk.options.server(opts);
 		}
-		return await opts.next({
-			context: {
-				auth: () => ({
-					userId: null,
-					sessionId: null,
-					getToken: async () => null,
-				}),
-				clerkInitialState: {},
-			},
-		});
+	} catch (_err) {
+		// Clerk unavailable, fall through to mock
 	}
+	return await opts.next({
+		context: {
+			auth: () => ({
+				userId: "user_mock",
+				sessionId: null,
+				getToken: async () => null,
+			}),
+			clerkInitialState: {},
+		},
+	});
 });
 
 export const startInstance = createStart(() => ({

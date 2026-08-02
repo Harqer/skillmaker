@@ -29,6 +29,7 @@ Design notes:
 
 from __future__ import annotations
 
+import atexit
 import logging
 import threading
 from collections.abc import Callable, Iterable
@@ -107,6 +108,13 @@ class SkillFileWatcher:
             daemon=True,
         )
         self._thread.start()
+
+        # Register an atexit handler so the Rust notify thread is stopped
+        # before CPython GC runs during finalization. Without this, the
+        # _rust_notify extension's Drop implementation crashes (SIGSEGV)
+        # when the daemon-thread teardown races with GC collection.
+        atexit.register(self.stop)
+
         log.debug(
             "SkillFileWatcher started on %d root(s): %s",
             len(self._roots),

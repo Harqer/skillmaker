@@ -17,6 +17,25 @@ os.getenv() directly in application code.
 import os
 
 
+# ── Local .env fallback (dev only) ───────────────────────────────────────────
+# Load a .env file from this directory if it exists and doesn't have machine
+# identity credentials.  Production deployments always use Infisical.
+def _dotenv_load() -> None:
+    import pathlib
+    dotenv_path = pathlib.Path(__file__).resolve().parent / ".env"
+    if dotenv_path.exists():
+        try:
+            from dotenv import load_dotenv
+            loaded = load_dotenv(dotenv_path, override=False)
+            if loaded is False:
+                # dotenv did nothing — likely a file with no parseable vars
+                pass
+        except ImportError:
+            pass  # python-dotenv not installed; env will come from Infisical or CLI
+
+
+_dotenv_load()
+
 # ── Infisical Python SDK bootstrap ────────────────────────────────────────────
 # If Machine Identity credentials are present, use the SDK to populate
 # os.environ before reading any secrets below. This makes the service
