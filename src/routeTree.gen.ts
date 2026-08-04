@@ -18,6 +18,13 @@ import { Route as SubmitRouteImport } from './routes/submit'
 import { Route as VibecodeRouteImport } from './routes/vibecode'
 import { Route as ApiSkillsRouteImport } from './routes/api/skills'
 import { Route as SkillsSkillIdRouteImport } from './routes/skills.$skillId'
+import { Route as ApiVibeChatRouteImport } from './routes/api/vibe/chat'
+import { Route as ApiVibeErrorsRouteImport } from './routes/api/vibe/errors'
+import { Route as ApiVibeModelsRouteImport } from './routes/api/vibe/models'
+import { Route as ApiVibeSandboxesSandboxIdRouteImport } from './routes/api/vibe/sandboxes/$sandboxId'
+import { Route as ApiVibeSandboxesSandboxIdFilesRouteImport } from './routes/api/vibe/sandboxes/$sandboxId/files'
+import { Route as ApiVibeSandboxesSandboxIdCmdsCmdIdRouteImport } from './routes/api/vibe/sandboxes/$sandboxId/cmds/$cmdId'
+import { Route as ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRouteImport } from './routes/api/vibe/sandboxes/$sandboxId/cmds/$cmdId/logs'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -64,6 +71,45 @@ const SkillsSkillIdRoute = SkillsSkillIdRouteImport.update({
   path: '/skills/$skillId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiVibeChatRoute = ApiVibeChatRouteImport.update({
+  id: '/api/vibe/chat',
+  path: '/api/vibe/chat',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVibeErrorsRoute = ApiVibeErrorsRouteImport.update({
+  id: '/api/vibe/errors',
+  path: '/api/vibe/errors',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVibeModelsRoute = ApiVibeModelsRouteImport.update({
+  id: '/api/vibe/models',
+  path: '/api/vibe/models',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiVibeSandboxesSandboxIdRoute =
+  ApiVibeSandboxesSandboxIdRouteImport.update({
+    id: '/api/vibe/sandboxes/$sandboxId',
+    path: '/api/vibe/sandboxes/$sandboxId',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const ApiVibeSandboxesSandboxIdFilesRoute =
+  ApiVibeSandboxesSandboxIdFilesRouteImport.update({
+    id: '/files',
+    path: '/files',
+    getParentRoute: () => ApiVibeSandboxesSandboxIdRoute,
+  } as any)
+const ApiVibeSandboxesSandboxIdCmdsCmdIdRoute =
+  ApiVibeSandboxesSandboxIdCmdsCmdIdRouteImport.update({
+    id: '/cmds/$cmdId',
+    path: '/cmds/$cmdId',
+    getParentRoute: () => ApiVibeSandboxesSandboxIdRoute,
+  } as any)
+const ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRoute =
+  ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRouteImport.update({
+    id: '/logs',
+    path: '/logs',
+    getParentRoute: () => ApiVibeSandboxesSandboxIdCmdsCmdIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -75,6 +121,13 @@ export interface FileRoutesByFullPath {
   '/vibecode': typeof VibecodeRoute
   '/api/skills': typeof ApiSkillsRoute
   '/skills/$skillId': typeof SkillsSkillIdRoute
+  '/api/vibe/chat': typeof ApiVibeChatRoute
+  '/api/vibe/errors': typeof ApiVibeErrorsRoute
+  '/api/vibe/models': typeof ApiVibeModelsRoute
+  '/api/vibe/sandboxes/$sandboxId': typeof ApiVibeSandboxesSandboxIdRouteWithChildren
+  '/api/vibe/sandboxes/$sandboxId/files': typeof ApiVibeSandboxesSandboxIdFilesRoute
+  '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId': typeof ApiVibeSandboxesSandboxIdCmdsCmdIdRouteWithChildren
+  '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId/logs': typeof ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -86,6 +139,13 @@ export interface FileRoutesByTo {
   '/vibecode': typeof VibecodeRoute
   '/api/skills': typeof ApiSkillsRoute
   '/skills/$skillId': typeof SkillsSkillIdRoute
+  '/api/vibe/chat': typeof ApiVibeChatRoute
+  '/api/vibe/errors': typeof ApiVibeErrorsRoute
+  '/api/vibe/models': typeof ApiVibeModelsRoute
+  '/api/vibe/sandboxes/$sandboxId': typeof ApiVibeSandboxesSandboxIdRouteWithChildren
+  '/api/vibe/sandboxes/$sandboxId/files': typeof ApiVibeSandboxesSandboxIdFilesRoute
+  '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId': typeof ApiVibeSandboxesSandboxIdCmdsCmdIdRouteWithChildren
+  '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId/logs': typeof ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -98,6 +158,13 @@ export interface FileRoutesById {
   '/vibecode': typeof VibecodeRoute
   '/api/skills': typeof ApiSkillsRoute
   '/skills/$skillId': typeof SkillsSkillIdRoute
+  '/api/vibe/chat': typeof ApiVibeChatRoute
+  '/api/vibe/errors': typeof ApiVibeErrorsRoute
+  '/api/vibe/models': typeof ApiVibeModelsRoute
+  '/api/vibe/sandboxes/$sandboxId': typeof ApiVibeSandboxesSandboxIdRouteWithChildren
+  '/api/vibe/sandboxes/$sandboxId/files': typeof ApiVibeSandboxesSandboxIdFilesRoute
+  '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId': typeof ApiVibeSandboxesSandboxIdCmdsCmdIdRouteWithChildren
+  '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId/logs': typeof ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -111,6 +178,13 @@ export interface FileRouteTypes {
     | '/vibecode'
     | '/api/skills'
     | '/skills/$skillId'
+    | '/api/vibe/chat'
+    | '/api/vibe/errors'
+    | '/api/vibe/models'
+    | '/api/vibe/sandboxes/$sandboxId'
+    | '/api/vibe/sandboxes/$sandboxId/files'
+    | '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId'
+    | '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId/logs'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -122,6 +196,13 @@ export interface FileRouteTypes {
     | '/vibecode'
     | '/api/skills'
     | '/skills/$skillId'
+    | '/api/vibe/chat'
+    | '/api/vibe/errors'
+    | '/api/vibe/models'
+    | '/api/vibe/sandboxes/$sandboxId'
+    | '/api/vibe/sandboxes/$sandboxId/files'
+    | '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId'
+    | '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId/logs'
   id:
     | '__root__'
     | '/'
@@ -133,6 +214,13 @@ export interface FileRouteTypes {
     | '/vibecode'
     | '/api/skills'
     | '/skills/$skillId'
+    | '/api/vibe/chat'
+    | '/api/vibe/errors'
+    | '/api/vibe/models'
+    | '/api/vibe/sandboxes/$sandboxId'
+    | '/api/vibe/sandboxes/$sandboxId/files'
+    | '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId'
+    | '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId/logs'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -145,6 +233,10 @@ export interface RootRouteChildren {
   VibecodeRoute: typeof VibecodeRoute
   ApiSkillsRoute: typeof ApiSkillsRoute
   SkillsSkillIdRoute: typeof SkillsSkillIdRoute
+  ApiVibeChatRoute: typeof ApiVibeChatRoute
+  ApiVibeErrorsRoute: typeof ApiVibeErrorsRoute
+  ApiVibeModelsRoute: typeof ApiVibeModelsRoute
+  ApiVibeSandboxesSandboxIdRoute: typeof ApiVibeSandboxesSandboxIdRouteWithChildren
 }
 
 declare module '@tanstack/react-router' {
@@ -212,8 +304,89 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SkillsSkillIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/vibe/chat': {
+      id: '/api/vibe/chat'
+      path: '/api/vibe/chat'
+      fullPath: '/api/vibe/chat'
+      preLoaderRoute: typeof ApiVibeChatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/vibe/errors': {
+      id: '/api/vibe/errors'
+      path: '/api/vibe/errors'
+      fullPath: '/api/vibe/errors'
+      preLoaderRoute: typeof ApiVibeErrorsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/vibe/models': {
+      id: '/api/vibe/models'
+      path: '/api/vibe/models'
+      fullPath: '/api/vibe/models'
+      preLoaderRoute: typeof ApiVibeModelsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/vibe/sandboxes/$sandboxId': {
+      id: '/api/vibe/sandboxes/$sandboxId'
+      path: '/api/vibe/sandboxes/$sandboxId'
+      fullPath: '/api/vibe/sandboxes/$sandboxId'
+      preLoaderRoute: typeof ApiVibeSandboxesSandboxIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/vibe/sandboxes/$sandboxId/files': {
+      id: '/api/vibe/sandboxes/$sandboxId/files'
+      path: '/files'
+      fullPath: '/api/vibe/sandboxes/$sandboxId/files'
+      preLoaderRoute: typeof ApiVibeSandboxesSandboxIdFilesRouteImport
+      parentRoute: typeof ApiVibeSandboxesSandboxIdRoute
+    }
+    '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId': {
+      id: '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId'
+      path: '/cmds/$cmdId'
+      fullPath: '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId'
+      preLoaderRoute: typeof ApiVibeSandboxesSandboxIdCmdsCmdIdRouteImport
+      parentRoute: typeof ApiVibeSandboxesSandboxIdRoute
+    }
+    '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId/logs': {
+      id: '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId/logs'
+      path: '/logs'
+      fullPath: '/api/vibe/sandboxes/$sandboxId/cmds/$cmdId/logs'
+      preLoaderRoute: typeof ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRouteImport
+      parentRoute: typeof ApiVibeSandboxesSandboxIdCmdsCmdIdRoute
+    }
   }
 }
+
+interface ApiVibeSandboxesSandboxIdCmdsCmdIdRouteChildren {
+  ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRoute: typeof ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRoute
+}
+
+const ApiVibeSandboxesSandboxIdCmdsCmdIdRouteChildren: ApiVibeSandboxesSandboxIdCmdsCmdIdRouteChildren =
+  {
+    ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRoute:
+      ApiVibeSandboxesSandboxIdCmdsCmdIdLogsRoute,
+  }
+
+const ApiVibeSandboxesSandboxIdCmdsCmdIdRouteWithChildren =
+  ApiVibeSandboxesSandboxIdCmdsCmdIdRoute._addFileChildren(
+    ApiVibeSandboxesSandboxIdCmdsCmdIdRouteChildren,
+  )
+
+interface ApiVibeSandboxesSandboxIdRouteChildren {
+  ApiVibeSandboxesSandboxIdFilesRoute: typeof ApiVibeSandboxesSandboxIdFilesRoute
+  ApiVibeSandboxesSandboxIdCmdsCmdIdRoute: typeof ApiVibeSandboxesSandboxIdCmdsCmdIdRouteWithChildren
+}
+
+const ApiVibeSandboxesSandboxIdRouteChildren: ApiVibeSandboxesSandboxIdRouteChildren =
+  {
+    ApiVibeSandboxesSandboxIdFilesRoute: ApiVibeSandboxesSandboxIdFilesRoute,
+    ApiVibeSandboxesSandboxIdCmdsCmdIdRoute:
+      ApiVibeSandboxesSandboxIdCmdsCmdIdRouteWithChildren,
+  }
+
+const ApiVibeSandboxesSandboxIdRouteWithChildren =
+  ApiVibeSandboxesSandboxIdRoute._addFileChildren(
+    ApiVibeSandboxesSandboxIdRouteChildren,
+  )
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
@@ -225,6 +398,10 @@ const rootRouteChildren: RootRouteChildren = {
   VibecodeRoute: VibecodeRoute,
   ApiSkillsRoute: ApiSkillsRoute,
   SkillsSkillIdRoute: SkillsSkillIdRoute,
+  ApiVibeChatRoute: ApiVibeChatRoute,
+  ApiVibeErrorsRoute: ApiVibeErrorsRoute,
+  ApiVibeModelsRoute: ApiVibeModelsRoute,
+  ApiVibeSandboxesSandboxIdRoute: ApiVibeSandboxesSandboxIdRouteWithChildren,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
