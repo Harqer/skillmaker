@@ -30,6 +30,7 @@ svix==1.22.0
 # Scraping
 firecrawl-py
 requests
+pdf-inspector             # local PDF → Markdown (vendored source in vendor/pdf-inspector)
 
 # Resilience
 tenacity

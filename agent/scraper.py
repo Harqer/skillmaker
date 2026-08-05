@@ -2,6 +2,10 @@
 scraper.py — Multi-page markdown aggregator for Skill Maker
 
 Priority chain for a given URL:
+  0. Local pdf_inspector → PDF URLs (path ends in .pdf) are downloaded and
+     converted to Markdown locally via the vendored Rust pdf-inspector binding
+     (fast, no OCR for text-based PDFs). Falls back to the layers below on any
+     failure.
   1. Jina Reader API     → single-page markdown (fast, preferred)
   2. SimpleScraper        /v1/extract → single-page markdown (fast)
   3. Firecrawl  /v1/scrape → single-page markdown (fallback)
@@ -43,6 +47,65 @@ _CRAWL_POLL_INTERVAL = 3  # seconds between status checks
 _CRAWL_MAX_WAIT = 120  # seconds before giving up on crawl job
 _CRAWL_MAX_PAGES = 30  # cap pages to avoid massive context windows
 _REQUEST_TIMEOUT = 60  # seconds for all HTTP calls
+
+
+# ── Layer 0: Local PDF → Markdown (vendored pdf-inspector) ───────────────────
+
+
+def _is_pdf_url(url: str) -> bool:
+    """True when the URL path ends in `.pdf` (case-insensitive)."""
+    return urlparse(url).path.lower().endswith(".pdf")
+
+
+def _looks_like_pdf(headers: dict) -> bool:
+    """True when an HTTP response advertises `application/pdf` content."""
+    ctype = (headers.get("Content-Type") or "").lower()
+    return "application/pdf" in ctype
+
+
+def _scrape_pdf_local(url: str) -> str | None:
+    """
+    Local PDF → Markdown conversion (no OCR for text-based PDFs).
+
+    Activates when the target URL is a PDF: the URL path ends in `.pdf` (or the
+    downloaded response indicates `application/pdf`). The bytes are converted
+    to Markdown locally via the vendored pdf-inspector Rust binding
+    (agent/vendor/pdf-inspector). Returns None on any failure or when the
+    target is not a PDF, so callers fall through to the remote layer chain.
+    """
+    if not _is_pdf_url(url):
+        return None
+
+    try:
+        import pdf_inspector
+    except ImportError:
+        print("[scraper] pdf_inspector not installed — falling back to remote layers.")
+        return None
+
+    try:
+        print(f"[scraper] Local pdf_inspector → {url}")
+        resp = requests.get(url, timeout=_REQUEST_TIMEOUT)
+        resp.raise_for_status()
+        if not _looks_like_pdf(resp.headers):
+            print(
+                "[scraper] URL ends in .pdf but response is not application/pdf — falling back."
+            )
+            return None
+
+        result = pdf_inspector.process_pdf_bytes(resp.content)
+        md = (result.markdown or "").strip()
+        if not md:
+            print(
+                "[scraper] pdf_inspector produced no markdown (scanned/OCR needed?) — falling back."
+            )
+            return None
+        print(
+            f"[scraper] Local pdf_inspector ✓  ({len(md):,} chars, type={result.pdf_type})"
+        )
+        return md
+    except Exception as exc:
+        print(f"[scraper] Local PDF conversion failed: {exc}")
+        return None
 
 
 # ── Layer 1: Jina Reader API ──────────────────────────────────────────────────
@@ -275,6 +338,7 @@ def scrape_docs(url: str) -> str:
     successful markdown result. Always returns a non-empty string.
 
     Layer order:
+      0. Local pdf_inspector (PDF URLs only)
       1. Jina Reader API    (fast markdown reader)
       2. SimpleScraper      (single page extraction)
       3. Firecrawl /scrape  (single page fallback)
@@ -287,6 +351,7 @@ def scrape_docs(url: str) -> str:
         return err
 
     layer_names = {
+        _scrape_pdf_local: "local_pdf",
         _scrape_jina_reader: "jina_reader",
         _scrape_simplescraper: "simplescraper",
         _scrape_firecrawl_single: "firecrawl_scrape",
@@ -294,6 +359,7 @@ def scrape_docs(url: str) -> str:
     }
 
     for scraper_fn in (
+        _scrape_pdf_local,
         _scrape_jina_reader,
         _scrape_simplescraper,
         _scrape_firecrawl_single,
@@ -311,7 +377,8 @@ def scrape_docs(url: str) -> str:
 
     return (
         f"[scraper] Failed to retrieve content from {url} "
-        f"via Jina Reader, SimpleScraper, Firecrawl /scrape, or Firecrawl /crawl. "
+        f"via local pdf_inspector, Jina Reader, SimpleScraper, "
+        f"Firecrawl /scrape, or Firecrawl /crawl. "
         f"SkillOpt training data for this URL will be limited."
     )
 
@@ -321,8 +388,9 @@ def bulk_scrape_docs(urls: list[str], max_workers: int = 5) -> dict[str, str]:
     Scrape ALL URLs in bulk using the full layer chain per URL.
 
     Each URL is processed in parallel via a thread pool.  For every URL the
-    same fallback chain runs (Jina → SimpleScraper → Firecrawl /scrape →
-    Firecrawl /crawl) and the first successful markdown result is kept.
+    same fallback chain runs (local pdf_inspector → Jina → SimpleScraper →
+    Firecrawl /scrape → Firecrawl /crawl) and the first successful markdown
+    result is kept.
 
     Returns a dict mapping each input URL to its merged markdown string.
     URLs that failed all layers still have an entry with an error message
@@ -363,7 +431,7 @@ def scrape_docs_to_temp_store(url: str) -> dict:
           "url": str,
           "markdown": str,
           "page_count": int,
-          "source": "jina_reader" | "simplescraper" | "firecrawl_scrape" | "firecrawl_crawl" | "failed",
+          "source": "local_pdf" | "jina_reader" | "simplescraper" | "firecrawl_scrape" | "firecrawl_crawl" | "failed",
           "char_count": int,
         }
 
@@ -379,6 +447,16 @@ def scrape_docs_to_temp_store(url: str) -> dict:
     }
 
     # Try each layer, record which succeeded
+    content = _scrape_pdf_local(url)
+    if content:
+        result.update(
+            markdown=content,
+            source="local_pdf",
+            page_count=1,
+            char_count=len(content),
+        )
+        return result
+
     content = _scrape_jina_reader(url)
     if content:
         result.update(
@@ -422,6 +500,6 @@ def scrape_docs_to_temp_store(url: str) -> dict:
 
     result["markdown"] = (
         f"Failed to scrape {url}. "
-        f"All three layers (SimpleScraper, Firecrawl /scrape, Firecrawl /crawl) failed."
+        f"All layers (local pdf_inspector, SimpleScraper, Firecrawl /scrape, Firecrawl /crawl) failed."
     )
     return result
