@@ -177,6 +177,7 @@ def generate_skill_with_raven(
     target_url: str,
     task_prompt: str = "Generate a comprehensive domain expert EVE skill bundle.",
     include_mcp: bool = False,
+    pages: dict[str, str] | None = None,
 ) -> dict:
     """Generate an EVE skill bundle using Raven deep research.
 
@@ -184,6 +185,12 @@ def generate_skill_with_raven(
     - Maker/checker split: Raven generates, verifier validates
     - Bounded iterations: max {MAX_GENERATION_ATTEMPTS} attempts
     - Circuit breaker: 5-minute total timeout
+
+    The RLM/REPL middle layer is tried first when a full corpus is available
+    (``pages`` from ``bulk_scrape_docs``, or a ``markdown_corpus`` larger than
+    the 80k brief truncation): the whole corpus is loaded as ``P`` and the
+    agent reads it programmatically instead of receiving a truncated dump. On
+    any RLM failure the call degrades to the legacy truncated-brief path below.
 
     Returns:
         dict with keys:
@@ -197,6 +204,25 @@ def generate_skill_with_raven(
     start_time = time.time()
     attempt = 0
     last_error = ""
+
+    # ── RLM/REPL first: full-corpus path via ``raven agent --corpus`` ───────
+    if pages or len(markdown_corpus) > 80000:
+        from rlm_bridge import generate_skill_with_rlm
+
+        rlm_result = generate_skill_with_rlm(
+            pages=pages,
+            markdown_corpus=markdown_corpus,
+            target_url=target_url,
+            task_prompt=task_prompt,
+            include_mcp=include_mcp,
+        )
+        if rlm_result["success"]:
+            print(
+                f"[raven_bridge] RLM/REPL path generated EVE bundle in {rlm_result['attempt_count']} attempt(s)"
+            )
+            return rlm_result
+        last_error = rlm_result.get("error", "RLM path failed")
+        print(f"[raven_bridge] RLM path failed: {last_error} — falling back to truncated brief")
 
     while attempt < MAX_GENERATION_ATTEMPTS:
         attempt += 1
@@ -368,12 +394,14 @@ def _normalize_eve_files(files: dict) -> dict:
 def generate_skill_card_with_raven(
     state: dict,
     markdown_corpus: str = "",
+    pages: dict[str, str] | None = None,
 ) -> dict:
     """Orchestrator-compatible wrapper: takes agent state, returns skill card.
 
     Args:
         state: The codegen agent state dict with target_url, task_prompt, etc.
         markdown_corpus: Pre-scraped markdown documentation.
+        pages: Full ``{url: markdown}`` corpus for the RLM/REPL path.
 
     Returns:
         dict with skill_content (JSON string) and folder_name.
@@ -402,6 +430,7 @@ def generate_skill_card_with_raven(
         target_url=target_url,
         task_prompt=task_prompt,
         include_mcp=include_mcp,
+        pages=pages,
     )
 
     if result["success"]:
