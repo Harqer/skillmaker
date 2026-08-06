@@ -57,7 +57,7 @@ SCHEMA = IndexSchema.from_dict(
 
 
 def _get_embeddings() -> GoogleGenerativeAIEmbeddings:
-    return GoogleGenerativeAIEmbeddings(model="models/text-embedding-004")
+    return GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-2")
 
 
 # ── Public client ─────────────────────────────────────────────────────────────

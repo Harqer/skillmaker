@@ -61,6 +61,7 @@ from raven.utils.helpers import estimate_prompt_tokens
 
 if TYPE_CHECKING:
     from raven.agent.hook import CompositeHook
+    from raven.agent.rlm.environment import RLMEnvironment
     from raven.agent.tools.base import Tool
     from raven.config.raven import (
         ContextConfig,
@@ -288,6 +289,10 @@ class AgentLoop:
         # tools, default behavior unchanged.
         plugin_tools: "list[Tool] | None" = None,
         empty_recovery: RecoveryLimits | None = None,
+        # RLM/REPL middle layer: when set, registers the ``rlm`` tool exposing
+        # the external corpus ``P`` (loaded from ``--corpus``) plus bounded
+        # ``llm_batch`` sub-LLM delegation. ``None`` = no RLM tool, legacy path.
+        rlm_environment: "RLMEnvironment | None" = None,
     ):
         from raven.agent.hook import (
             CompositeHook,
@@ -353,6 +358,10 @@ class AgentLoop:
         # Tools contributed by activated plugins; registered into the
         # ToolRegistry by ``_register_default_tools``.
         self.plugin_tools: "list[Tool]" = list(plugin_tools or [])
+
+        # RLM/REPL middle layer (corpus ``P`` + ``llm_batch``), built by the
+        # CLI when ``--corpus`` is given. ``None`` = tool not registered.
+        self.rlm_environment = rlm_environment
 
         # Phase A: per-turn stash for ``injected_skill_ids`` surfaced by
         # :class:`DefaultContextEngine.assemble`'s ``AssembledContext.metadata``.
@@ -666,6 +675,14 @@ class AgentLoop:
                         registry=skill_registry,
                     ),
                 )
+
+        # RLM/REPL middle layer: registered after the skill tools so it can be
+        # cataloged by progressive tool disclosure below. Uses the environment
+        # built by the CLI from ``--corpus``; ``None`` = no RLM tool.
+        if self.rlm_environment is not None:
+            from raven.agent.tools.rlm import RLMReplTool
+
+            self.tools.register(RLMReplTool(self.rlm_environment))
 
         # Progressive tool disclosure. Registered last so the catalog it
         # searches covers every built-in/plugin tool above; MCP tools join

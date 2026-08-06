@@ -209,6 +209,16 @@ def register(app: typer.Typer) -> None:
                 "for normal operation."
             ),
         ),
+        corpus: str | None = typer.Option(
+            None,
+            "--corpus",
+            help=(
+                "Path to a documentation corpus for the RLM middle layer "
+                "(JSON {url: markdown} or plain text). Exposed to the agent "
+                "as variable P (raw corpus) and G (knowledge graph) via the "
+                "rlm tool."
+            ),
+        ),
     ):
         """Interact with the agent directly."""
         if sum((session_id is not None, continue_, resume is not None)) > 1:
@@ -323,6 +333,28 @@ def register(app: typer.Typer) -> None:
             registry=plugin_registry,
         )
 
+        # RLM/REPL middle layer: when --corpus is given, load the corpus and
+        # build the environment that exposes it as ``P`` through the ``rlm``
+        # tool (registered by AgentLoop below). ``None`` = no RLM tool.
+        rlm_environment = None
+        if corpus:
+            from raven.agent.rlm import RLMEnvironment
+            from raven.agent.rlm.corpus import load_corpus_file
+            from raven.agent.rlm.limits import rlm_limits_from_env
+
+            corpus_text, corpus_pages = load_corpus_file(corpus)
+            rlm_environment = RLMEnvironment(
+                provider=provider,
+                corpus=corpus_text,
+                pages=corpus_pages,
+                model=config.agents.defaults.model,
+                limits=rlm_limits_from_env(),
+            )
+            console.print(
+                f"[dim]RLM corpus loaded: {len(corpus_text):,} chars / {len(corpus_pages)} pages, "
+                f"graph: {rlm_environment.graph.describe()}[/dim]"
+            )
+
         agent_loop = AgentLoop(
             provider=provider,
             now_fn=parse_fake_now(fake_now),
@@ -360,6 +392,7 @@ def register(app: typer.Typer) -> None:
             memory_config=ec_config.memory,
             skill_forge_router_config=ec_config.skill_forge.router,
             plugin_tools=plugin_tools,
+            rlm_environment=rlm_environment,
         )
         agent_loop.configure_personalization(config.agents.defaults.enable_personalization)
         attach_sentinel_spawn(sentinel_runner, agent_loop)

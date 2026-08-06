@@ -80,6 +80,14 @@ def test_agent_help_shows_resume_flag() -> None:
     assert "--resume" in r.stdout
 
 
+def test_agent_help_shows_corpus_flag() -> None:
+    """--corpus RLM middle-layer flag appears in agent --help."""
+    r = runner.invoke(app, ["agent", "--help"])
+    assert r.exit_code == 0
+    assert "--corpus" in r.stdout
+    assert "RLM" in r.stdout
+
+
 def _invoke_agent_capturing_session(
     monkeypatch: pytest.MonkeyPatch, workspace: Path, extra_args: list[str]
 ) -> tuple[object, dict[str, str]]:

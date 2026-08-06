@@ -133,6 +133,7 @@ class CodegenState(TypedDict):
     existing_mcp_found: bool | None
     extracted_mcp_script: str | None
     extracted_mcp_config: str | None
+    bulk_markdowns: dict[str, str]
 
 
 class SecurityState(TypedDict):
@@ -373,6 +374,7 @@ def generate_skill_card_node(state: CodegenState):
                     "task_prompt", "Generate comprehensive EVE skill bundle."
                 ),
                 include_mcp=state.get("include_mcp", False),
+                pages=state.get("bulk_markdowns") or None,
             )
             if result["success"]:
                 print(
@@ -793,6 +795,7 @@ def run_orchestrator(
         "existing_mcp_found": False,
         "extracted_mcp_script": None,
         "extracted_mcp_config": None,
+        "bulk_markdowns": bulk_markdowns,
     }
 
     print(
