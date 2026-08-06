@@ -139,6 +139,7 @@ class DatabricksStore:
             retry_timeout_seconds=self._HTTP_TIMEOUT_SECONDS,
         )
         self._warehouse_id: str | None = None
+        self.ensure_schema()
 
     # ── Warehouse resolution ───────────────────────────────────────────────────
 

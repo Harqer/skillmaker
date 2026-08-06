@@ -21,15 +21,17 @@ import uuid
 from typing import TypedDict
 
 import config  # noqa — sets LANGCHAIN_TRACING_V2, GOOGLE_API_KEY, etc.
-from config import REDIS_URI
+from config import GEMINI_API_KEY, REDIS_URI
 from context_retriever import get_context_tools
 from context_surfaces import SkillVectorStore
 from databricks_store import SkillRecord
 from databricks_store import get_store as get_databricks_store
-from langchain_community.cache import RedisSemanticCache
+from langchain_core.caches import RETURN_VAL_TYPE, BaseCache
 from langchain_core.globals import set_llm_cache
+from langchain_core.load import dumps, loads
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_core.outputs import Generation
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.redis import RedisSaver
 from langgraph.graph import END, START, StateGraph
@@ -38,28 +40,84 @@ from memory_client import RedisAgentMemoryClient
 from pydantic import BaseModel, Field
 from redis import Redis
 from redisvl.extensions.llmcache import SemanticCache
+from redisvl.utils.vectorize.googlegenai import GoogleGenAIVectorizer
 from scraper import bulk_scrape_docs, scrape_docs
 from security_sandbox import sanitize_mcp_script, sanitize_skill_content
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # ── RedisVL & LangChain LLM Cache ───────────────────────────────────────────
 
+
+class RedisVLSemanticLLMCache(BaseCache):
+    """LangChain LLM cache backed by a RedisVL SemanticCache.
+
+    ``langchain_community.cache.RedisSemanticCache`` is a legacy wrapper over
+    the retired langchain Redis vectorstore, which leaks ``index_name`` into
+    ``redis.from_url`` and breaks against redis-py v7. This adapter speaks the
+    same ``BaseCache`` protocol but stores/retrieves through the modern,
+    supported RedisVL ``SemanticCache`` (same engine as the doc cache).
+    """
+
+    def __init__(self, semantic_cache: SemanticCache, ttl: int = 604800) -> None:
+        self._cache = semantic_cache
+        self._ttl = ttl
+
+    def lookup(self, prompt: str, llm_string: str) -> RETURN_VAL_TYPE:
+        generations: list[Generation] = []
+        for hit in self._cache.check(prompt):
+            try:
+                generations.extend(loads(hit["response"]))
+            except (ValueError, TypeError):
+                generations.extend(_load_generations_from_json(hit["response"]))
+        return generations or None
+
+    def update(self, prompt: str, llm_string: str, return_val: RETURN_VAL_TYPE) -> None:
+        for gen in return_val:
+            if not isinstance(gen, Generation):
+                raise TypeError(
+                    "RedisVLSemanticLLMCache only supports caching of "
+                    f"normal LLM generations, got {type(gen)}"
+                )
+        self._cache.store(prompt, dumps(return_val), ttl=self._ttl)
+
+    def clear(self, **kwargs: object) -> None:
+        self._cache.clear()
+
+
+def _load_generations_from_json(json_str: str) -> list[Generation]:
+    import json
+
+    return [
+        Generation(text=item["text"], generation_info=item.get("generation_info"))
+        for item in json.loads(json_str)
+    ]
+
+
 redis_client = Redis.from_url(REDIS_URI)
 try:
-    set_llm_cache(
-        RedisSemanticCache(
-            redis_url=REDIS_URI,
-            embedding=GoogleGenerativeAIEmbeddings(model="models/text-embedding-004"),
-            score_threshold=0.15,
-        )
+    llm_semantic_cache = SemanticCache(
+        index_name="llm_cache",
+        redis_url=REDIS_URI,
+        distance_threshold=0.15,
+        vectorizer=GoogleGenAIVectorizer(
+            model="gemini-embedding-001",
+            api_config={"api_key": GEMINI_API_KEY},
+        ),
     )
-    print("[orchestrator] Redis Semantic LLM Cache enabled (LangCache active)")
+    set_llm_cache(RedisVLSemanticLLMCache(llm_semantic_cache))
+    print("[orchestrator] Redis Semantic LLM Cache enabled (RedisVL active)")
 except Exception as e:
     print(f"[orchestrator] Warning: Failed to set Redis Semantic LLM cache: {e}")
 
 try:
     doc_cache = SemanticCache(
-        index_name="doc_scrape_cache", redis_url=REDIS_URI, distance_threshold=0.15
+        index_name="doc_scrape_cache",
+        redis_url=REDIS_URI,
+        distance_threshold=0.15,
+        vectorizer=GoogleGenAIVectorizer(
+            model="gemini-embedding-001",
+            api_config={"api_key": GEMINI_API_KEY},
+        ),
     )
     print("[orchestrator] RedisVL Semantic Cache active for documentation indexing")
 except Exception as e:
