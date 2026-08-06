@@ -838,7 +838,7 @@ dice_agent = LlmAgent(
 			} else {
 				skillMdContent = `---
 name: ${folderName}
-description: Official EVE agent skill for ${domainClean} compiled via Raven Deep Research & Databricks Lakehouse Vector Search. Use when working with ${domainClean} APIs, CLI commands, SDK setup, or system integrations.
+description: Official EVE agent skill for ${domainClean}. Use when working with ${domainClean} APIs, CLI commands, SDK setup, or system integrations.
 license: Apache-2.0
 compatibility: Universal runtime
 metadata:
@@ -890,7 +890,7 @@ export default defineTool({
 					? "Official EverMind Raven terminal-native agent harness skill featuring EverOS durable memory and MiroThinker Deep Research."
 					: isGenkit
 					? "Official Firebase Genkit AI framework skill for TypeScript, flow definitions, and Google AI plugins."
-					: `Production-grade EVE agent skill for ${domainClean} compiled via Raven Deep Research.`,
+					: `Production-grade EVE agent skill for ${domainClean} covering its APIs, CLI commands, SDK setup, and system integrations.`,
 				tags: isExpo
 					? ["Expo", "React Native", "Mobile", "SDK"]
 					: isAdk
@@ -955,7 +955,7 @@ export default defineTool({
 			title: (parsed.title as string) || "Compiled AI Skill",
 			description:
 				(parsed.description as string) ||
-				"Expert agentic skill compiled via Raven & SkillOpt.",
+				"EVE agent skill covering the target domain's APIs, CLI commands, and SDK integration patterns.",
 			content: parsed.eveFiles
 				? JSON.stringify(parsed.eveFiles)
 				: typeof parsed.content === "string"
@@ -971,8 +971,7 @@ export default defineTool({
 				: ["AI", "Agent"]) as string[],
 			mcpScript: (parsed.mcpScript as string | null) || null,
 			mcpConfig: (parsed.mcpConfig as string | null) || null,
-			traceUrl:
-				"https://smith.langchain.com/o/raven-compiler/projects/p/skillopt-eve-pipeline",
+			traceUrl: null,
 			sourceUrl: url,
 		};
 

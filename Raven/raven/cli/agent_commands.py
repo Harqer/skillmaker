@@ -115,6 +115,18 @@ def _print_agent_response(response: str, render_markdown: bool) -> None:
     console.print()
 
 
+def _make_response_renderer(markdown: bool, json_output: bool):
+    """Pick the stdout renderer for an assistant response.
+
+    ``--json`` bypasses rich entirely: the raw text goes out via plain
+    ``print`` with no banner, so machine consumers get byte-identical output
+    that ``json.loads`` can parse without word-wrap corruption.
+    """
+    if json_output:
+        return lambda t: print(t or "")
+    return lambda t: _print_agent_response(t, render_markdown=markdown)
+
+
 def _is_exit_command(command: str) -> bool:
     """Return True when input should end interactive chat."""
     return command.lower() in EXIT_COMMANDS
@@ -169,6 +181,11 @@ def register(app: typer.Typer) -> None:
         workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
         config: str | None = typer.Option(None, "--config", help="Config file path"),
         markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
+        json_output: bool = typer.Option(
+            False,
+            "--json",
+            help="Emit the assistant response as raw machine-readable text: no banner, no rich styling, no word wrapping",
+        ),
         logs: bool = typer.Option(False, "--logs/--no-logs", help="Show Raven runtime logs during chat"),
         wait_skill_extract: bool = typer.Option(
             False,
@@ -445,8 +462,12 @@ def register(app: typer.Typer) -> None:
                     scheduler, hub, teardown = build_repl(
                         agent_loop,
                         "cli",
-                        lambda t: _print_agent_response(t, render_markdown=markdown),
-                        render_notice=lambda c: console.print(f"  [dim]↳ {c}[/dim]"),
+                        _make_response_renderer(markdown, json_output),
+                        render_notice=(
+                            None
+                            if json_output
+                            else lambda c: console.print(f"  [dim]↳ {c}[/dim]")
+                        ),
                         send_progress=bool(ch.send_progress) if ch else False,
                         send_tool_hints=bool(ch.send_tool_hints) if ch else False,
                     )
@@ -558,7 +579,7 @@ def register(app: typer.Typer) -> None:
                 scheduler, hub, teardown = build_repl(
                     agent_loop,
                     cli_channel,
-                    lambda t: _print_agent_response(t, render_markdown=markdown),
+                    _make_response_renderer(markdown, json_output),
                     render_notice=lambda c: console.print(f"  [dim]↳ {c}[/dim]"),
                     render_marker=_render_nudge_marker,
                     send_progress=bool(_ch.send_progress) if _ch else False,

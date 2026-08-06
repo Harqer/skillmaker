@@ -121,7 +121,7 @@ def _build_research_brief(
             )
             if rlm_res.get("success") and rlm_res.get("answer"):
                 rlm_synthesis = f"\n\n## RLM REPL Infinite Context Synthesis (Zero-Context-Rot Analysis)\n{rlm_res['answer']}\n"
-                print(f"[raven_bridge] RLM REPL synthesis complete. Token usage reduced by ~85%.")
+                print("[raven_bridge] RLM REPL synthesis complete. Token usage reduced by ~85%.")
         except Exception as e:
             print(f"[raven_bridge] RLM REPL preprocessing warning: {e}")
 
@@ -172,6 +172,16 @@ def _build_research_brief(
 # ── Main generation function with Loop Engineering patterns ───────────────
 
 
+def _append_verifier_feedback(brief: str, issues: list[str]) -> str:
+    """Augment a research brief with verifier findings for the next attempt."""
+    feedback = (
+        "\n\n## Previous attempt feedback\n"
+        "The verifier found these issues with your last output:\n"
+        + "\n".join(f"- {i}" for i in issues)
+    )
+    return brief + feedback
+
+
 def generate_skill_with_raven(
     markdown_corpus: str,
     target_url: str,
@@ -185,6 +195,8 @@ def generate_skill_with_raven(
     - Maker/checker split: Raven generates, verifier validates
     - Bounded iterations: max {MAX_GENERATION_ATTEMPTS} attempts
     - Circuit breaker: 5-minute total timeout
+    - Fast-fail: structurally unparseable output bails after the first attempt
+      instead of burning full LLM regenerations on a broken output contract
 
     The RLM/REPL middle layer is tried first when a full corpus is available
     (``pages`` from ``bulk_scrape_docs``, or a ``markdown_corpus`` larger than
@@ -224,6 +236,10 @@ def generate_skill_with_raven(
         last_error = rlm_result.get("error", "RLM path failed")
         print(f"[raven_bridge] RLM path failed: {last_error} — falling back to truncated brief")
 
+    brief = _build_research_brief(
+        markdown_corpus, target_url, task_prompt, include_mcp
+    )
+
     while attempt < MAX_GENERATION_ATTEMPTS:
         attempt += 1
 
@@ -243,80 +259,40 @@ def generate_skill_with_raven(
             f"[raven_bridge] Generation attempt {attempt}/{MAX_GENERATION_ATTEMPTS} ..."
         )
 
-        brief = _build_research_brief(
-            markdown_corpus, target_url, task_prompt, include_mcp
-        )
+        research = _run_raven_research(brief)
 
-        with tempfile.NamedTemporaryFile(
-            mode="w", suffix=".md", delete=False, encoding="utf-8"
-        ) as f:
-            f.write(brief)
-            brief_path = f.name
+        if research.get("error"):
+            last_error = research["error"]
+            print(f"[raven_bridge] Raven attempt {attempt} failed: {last_error}")
+            if research.get("structural"):
+                print("[raven_bridge] Output contract failure is structural — fast-failing")
+                break
+            continue
 
-        try:
-            raven_env = {
-                **os.environ,
-                "PYTHONUNBUFFERED": "1",
-                "TERM": "xterm-256color",
-                "RAVEN_SKILL_MODE": "1",
+        eve_files = research.get("eve_files") or {}
+        if not eve_files:
+            last_error = "Could not extract EVE bundle from Raven output"
+            print(f"[raven_bridge] {last_error}")
+            if research.get("structural"):
+                print("[raven_bridge] Output contract failure is structural — fast-failing")
+                break
+            continue
+
+        passes, issues = verify_skill_bundle(eve_files)
+
+        if passes:
+            print(f"[raven_bridge] Verified EVE bundle after {attempt} attempt(s)")
+            return {
+                "success": True,
+                "eve_files": eve_files,
+                "skill_content": json.dumps(eve_files, indent=2),
+                "attempt_count": attempt,
+                "issues": [],
             }
-            result = subprocess.run(
-                [sys.executable, "-m", "raven", "agent", "-m", brief],
-                capture_output=True,
-                text=True,
-                timeout=120,
-                env=raven_env,
-            )
 
-            raven_output = result.stdout or ""
-            raven_error = result.stderr or ""
-
-            if result.returncode != 0:
-                last_error = (
-                    f"Raven exited with code {result.returncode}: {raven_error[:500]}"
-                )
-                print(f"[raven_bridge] Raven attempt {attempt} failed: {last_error}")
-                continue
-
-            eve_files = _extract_eve_from_raven_output(raven_output)
-
-            if not eve_files:
-                last_error = "Could not extract EVE bundle from Raven output"
-                print(f"[raven_bridge] {last_error}")
-                continue
-
-            passes, issues = verify_skill_bundle(eve_files)
-
-            if passes:
-                print(f"[raven_bridge] Verified EVE bundle after {attempt} attempt(s)")
-                return {
-                    "success": True,
-                    "eve_files": eve_files,
-                    "skill_content": json.dumps(eve_files, indent=2),
-                    "attempt_count": attempt,
-                    "issues": [],
-                }
-            else:
-                last_error = f"Verifier rejected bundle: {issues}"
-                print(f"[raven_bridge] Verifier failed attempt {attempt}: {issues}")
-                context_hint = (
-                    "\n\n## Previous attempt feedback\n"
-                    "The verifier found these issues with your last output:\n"
-                    + "\n".join(f"- {i}" for i in issues)
-                )
-                task_prompt += context_hint
-
-        except subprocess.TimeoutExpired:
-            last_error = f"Raven timed out (120s) on attempt {attempt}"
-            print(f"[raven_bridge] {last_error}")
-        except Exception as e:
-            last_error = f"Raven bridge error on attempt {attempt}: {e}"
-            print(f"[raven_bridge] {last_error}")
-        finally:
-            try:
-                os.unlink(brief_path)
-            except OSError:
-                pass
+        last_error = f"Verifier rejected bundle: {issues}"
+        print(f"[raven_bridge] Verifier failed attempt {attempt}: {issues}")
+        brief = _append_verifier_feedback(brief, issues)
 
     return {
         "success": False,
@@ -328,20 +304,201 @@ def generate_skill_with_raven(
     }
 
 
+# ── Research executor (Go runner preferred, Python subprocess fallback) ──────
+
+
+def _find_go_runner() -> str | None:
+    """Locate the compiled deep-research runner binary.
+
+    Search order: explicit env var, then build output paths under the repo.
+    Returns None when the runner is not built — the Python subprocess path
+    is then used instead.
+    """
+    env_bin = os.environ.get("ABSO_RAVEN_GO_BIN", "")
+    if env_bin and os.path.isfile(env_bin):
+        return env_bin
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    for candidate in (
+        os.path.join(repo_root, "backend", "go", "bin", "deep-research-runner"),
+        os.path.join(repo_root, "backend", "go", "deep-research-runner"),
+    ):
+        if os.path.isfile(candidate):
+            return candidate
+    return None
+
+
+def _run_go_runner(brief: str, go_bin: str) -> dict:
+    """Execute the deep-research runner, which emits a result JSON on stdout."""
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".md", delete=False, encoding="utf-8"
+    ) as f:
+        f.write(brief)
+        brief_path = f.name
+    try:
+        raven_env = {
+            **os.environ,
+            "PYTHONUNBUFFERED": "1",
+        }
+        result = subprocess.run(
+            [go_bin, "research", "--brief", brief_path, "--python", sys.executable],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=raven_env,
+        )
+        if result.returncode != 0:
+            return {
+                "error": f"deep-research runner exited with code {result.returncode}: {(result.stderr or result.stdout)[:500]}",
+                "structural": True,
+            }
+        parsed = json.loads(result.stdout or "{}")
+        if parsed.get("success") and isinstance(parsed.get("eve_files"), dict):
+            return {
+                "eve_files": parsed["eve_files"],
+                "output": parsed.get("output", ""),
+                "error": None,
+                "structural": False,
+            }
+        return {
+            "error": parsed.get("error") or "deep-research runner produced no EVE bundle",
+            "output": parsed.get("output", ""),
+            "structural": bool(parsed.get("structural", True)),
+        }
+    except json.JSONDecodeError as e:
+        return {
+            "error": f"deep-research runner output was not JSON: {e}",
+            "structural": True,
+        }
+    except subprocess.TimeoutExpired:
+        return {"error": "deep-research runner timed out (120s)", "structural": True}
+    except Exception as e:
+        return {
+            "error": f"deep-research runner error: {e}",
+            "structural": True,
+        }
+    finally:
+        try:
+            os.unlink(brief_path)
+        except OSError:
+            pass
+
+
+def _run_raven_cli(brief: str) -> dict:
+    """Run the vendored Raven CLI one-shot in machine-readable mode."""
+    with tempfile.NamedTemporaryFile(
+        mode="w", suffix=".md", delete=False, encoding="utf-8"
+    ) as f:
+        f.write(brief)
+        brief_path = f.name
+    try:
+        raven_env = {
+            **os.environ,
+            "PYTHONUNBUFFERED": "1",
+            "TERM": "xterm-256color",
+        }
+        result = subprocess.run(
+            [sys.executable, "-m", "raven", "agent", "-m", brief, "--json"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+            env=raven_env,
+        )
+        raven_output = result.stdout or ""
+        eve_files = _extract_eve_from_raven_output(raven_output)
+        if eve_files:
+            # Output is parseable regardless of the exit code: raven's native
+            # runtimes (lancedb/torch) can segfault during interpreter
+            # finalization after a fully-rendered response, so a non-zero exit
+            # is only a hard failure when stdout is unusable.
+            return {
+                "output": raven_output,
+                "eve_files": eve_files,
+                "error": None,
+                "structural": False,
+            }
+        if result.returncode != 0:
+            return {
+                "error": f"Raven exited with code {result.returncode}: {result.stderr[:500]}",
+                "structural": True,
+            }
+        return {
+            "output": raven_output,
+            "eve_files": {},
+            "error": None,
+            "structural": False,
+        }
+    except subprocess.TimeoutExpired:
+        return {"error": "Raven timed out (120s)", "structural": True}
+    except Exception as e:
+        return {"error": f"Raven bridge error: {e}", "structural": True}
+    finally:
+        try:
+            os.unlink(brief_path)
+        except OSError:
+            pass
+
+
+def _run_raven_research(brief: str) -> dict:
+    """Dispatch one research execution through the deep-research runner or the
+    vendored CLI directly. Returns normalized dict with keys: output, eve_files,
+    error, structural.
+    """
+    go_bin = _find_go_runner()
+    if go_bin is not None:
+        result = _run_go_runner(brief, go_bin)
+        if not result.get("error"):
+            return result
+        print(
+            f"[raven_bridge] Go runner error ({result['error']}) — falling back to direct CLI"
+        )
+
+    cli_result = _run_raven_cli(brief)
+    if cli_result.get("error"):
+        return cli_result
+    if not cli_result.get("eve_files"):
+        cli_result["structural"] = (
+            _output_is_structural_failure(cli_result.get("output", "")) is not None
+        )
+    return cli_result
+
+
 # ── EVE bundle extraction from Raven output ───────────────────────────────
+
+
+def _output_is_structural_failure(output: str) -> str | None:
+    """Return a reason when output can never yield an EVE bundle on retry.
+
+    A retry can only help when the model produced a parseable EVE bundle that
+    the verifier rejected. Empty, banner-only, or JSON-corrupted output is a
+    contract failure at the CLI boundary and cannot be fixed by regenerating.
+    """
+    if not output or not output.strip():
+        return "Raven returned empty output"
+    if "{" not in output:
+        return "Raven output contains no JSON object"
+    first = output.find("{")
+    last = output.rfind("}")
+    if first == -1 or last <= first:
+        return "Raven output contains no complete JSON object"
+    try:
+        json.loads(output[first : last + 1])
+    except json.JSONDecodeError as e:
+        return f"Raven output JSON is corrupted (unparseable): {e}"
+    return None
 
 
 def _extract_eve_from_raven_output(output: str) -> dict:
     """Extract EVE file bundle from Raven's agent output.
 
-    Raven returns markdown text. We look for a JSON code block or any
-    well-formed JSON dictionary in the response.
+    With ``--json`` the output is raw and wrap-free, but we stay tolerant of
+    stray leading/trailing lines (notices, fences) by scanning candidate
+    slices in order of likelihood.
     """
     output = output.strip()
     if not output:
         return {}
 
-    json_block = None
+    candidates: list[str] = []
 
     lines = output.split("\n")
     in_block = False
@@ -350,30 +507,28 @@ def _extract_eve_from_raven_output(output: str) -> dict:
         stripped = line.strip()
         if stripped.startswith(("```json", "```")):
             if in_block:
+                candidates.append("\n".join(block_lines))
                 in_block = False
-                json_block = "\n".join(block_lines)
-                break
             else:
                 in_block = True
                 block_lines = []
-                continue
+            continue
         if in_block:
             block_lines.append(line)
 
-    if json_block:
-        try:
-            parsed = json.loads(json_block)
-            if isinstance(parsed, dict):
-                return _normalize_eve_files(parsed)
-        except json.JSONDecodeError:
-            pass
+    first = output.find("{")
+    last = output.rfind("}")
+    if first != -1 and last != -1 and last > first:
+        candidates.append(output[first : last + 1])
+    candidates.append(output)
 
-    try:
-        parsed = json.loads(output)
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
         if isinstance(parsed, dict):
             return _normalize_eve_files(parsed)
-    except json.JSONDecodeError:
-        pass
 
     return {}
 
@@ -405,6 +560,10 @@ def generate_skill_card_with_raven(
 
     Returns:
         dict with skill_content (JSON string) and folder_name.
+
+    Raises:
+        RuntimeError: when deep research is required but cannot run or fails —
+            failures are surfaced loudly instead of silently degrading.
     """
     target_url = state.get("target_url", "")
     task_prompt = state.get(
@@ -416,14 +575,10 @@ def generate_skill_card_with_raven(
     )
 
     if not is_raven_available():
-        print(
-            "[raven_bridge] Raven unavailable — falling through to Gemini codegen path"
+        raise RuntimeError(
+            "Raven deep research unavailable: raven CLI not installed or not "
+            "importable in the worker environment"
         )
-        return {
-            "skill_content": "",
-            "folder_name": folder_name,
-            "_raven_unavailable": True,
-        }
 
     result = generate_skill_with_raven(
         markdown_corpus=markdown_corpus,
@@ -445,11 +600,9 @@ def generate_skill_card_with_raven(
     print(
         f"[raven_bridge] Raven generation failed after {result['attempt_count']} attempts: {result.get('error', 'unknown')}"
     )
-    return {
-        "skill_content": "",
-        "folder_name": folder_name,
-        "_raven_unavailable": True,
-    }
+    raise RuntimeError(
+        f"Raven deep research failed: {result.get('error', 'unknown')}"
+    )
 
 
 __all__ = [

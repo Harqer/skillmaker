@@ -166,7 +166,12 @@ os.environ.setdefault("LANGSMITH_TRACING", "true")
 os.environ.setdefault("LANGCHAIN_TRACING_V2", "true")
 os.environ.setdefault("LANGCHAIN_API_KEY", LANGSMITH_API_KEY)
 os.environ.setdefault("LANGSMITH_API_KEY", LANGSMITH_API_KEY)
+# Guarantee both canonical LLM key names are present in the process env so any
+# subprocess boundary (Raven deep research, rlm_engine, LangChain Google) that
+# reads one of the aliases always inherits the configured key — never silently
+# runs keyless and degrades to a fallback provider.
 os.environ.setdefault("GOOGLE_API_KEY", GEMINI_API_KEY)
+os.environ.setdefault("GEMINI_API_KEY", os.environ.get("GOOGLE_API_KEY", ""))
 
 # Ensure NVIDIA LangSmith (Deep Agent) integration by pointing to the right project/endpoint if provided
 os.environ.setdefault("LANGCHAIN_PROJECT", _optional("LANGCHAIN_PROJECT", "deep-agent"))

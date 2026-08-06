@@ -4,13 +4,15 @@ orchestrator.py — LangGraph skill-generation pipeline with Sub-Agent Hierarchi
 Graph topology (with robust, production-grade sub-agents):
   START
     └─► scraper_sub_agent (Sub-Agent Graph: scrapes & prunes doc context with RedisVL SemanticCache)
-          └─► codegen_sub_agent (Sub-Agent Graph: generates Eve files using LangChain Structured JSON & scaffolds FastMCP)
+          └─► codegen_sub_agent (Sub-Agent Graph: generates EVE files via Raven deep research & scaffolds FastMCP)
                 └─► security_sub_agent (Sub-Agent Graph: sanitizes, ingests dynamically, and runs Self-Evolution)
                       └─► END
 
 Key Enhancements & Dynamic Retrieval:
   • ZERO-TOKEN INTERCEPTION is powered by a high-performance RedisVL SemanticCache instance.
-  • Eve skill format output generation is governed by a strict Pydantic schema using LangChain's `.with_structured_output` API.
+  • EVE skill format output generation is driven by the Raven deep research harness
+    (see raven_bridge.py) with bounded retries, fast-fail extraction, and loud
+    failure — there is no silent Gemini/templated fallback for skill content.
   • Content retrieval uses dynamic, relevance-based similarity searches (search_dynamic) instead of hardcoded limits.
 """
 
@@ -127,17 +129,6 @@ except Exception as e:
 llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 agent_memory = RedisAgentMemoryClient()
 skill_store = SkillVectorStore()
-
-# ── Structured JSON output schema for Eve Framework ────────────────────────
-
-
-class EveSkill(BaseModel):
-    files: dict[str, str] = Field(
-        description="A dictionary mapping file paths (e.g., 'agent.ts', 'instructions.md', 'skills/api.md', 'tools/fetch.ts') to their exact string content."
-    )
-
-
-structured_llm = llm.with_structured_output(EveSkill)
 
 
 class DocScraperAnalysis(BaseModel):
@@ -390,15 +381,16 @@ scraper_builder.add_edge("scrape_and_analyze", END)
 scraper_subgraph = scraper_builder.compile()
 
 
-# ── Sub-Agent 2: Codegen Subgraph (Raven Deep Research + Gemini Fallback) ────
+# ── Sub-Agent 2: Codegen Subgraph (Raven Deep Research) ─────────────────────
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def generate_skill_card_node(state: CodegenState):
-    """Generate skill content — Raven deep research path with Gemini fallback.
+    """Generate skill content — Raven deep research path only.
 
-    Primary: Raven agent harness with deep research and Loop Engineering patterns.
-    Fallback: LangChain Structured Output (Gemini) with EveSkill schema.
+    No silent fallback: the node either returns a verified Raven EVE bundle
+    (or documentation-provided skills) or raises. Failures are surfaced loudly
+    instead of degrading to a Gemini/templated stub, so the workflow can never
+    ship an unsourced skill card silently.
     """
     folder_name = (
         (state["target_url"].split("/")[-1] or "custom-skill").replace(".", "-").lower()
@@ -416,109 +408,24 @@ def generate_skill_card_node(state: CodegenState):
                 "folder_name": folder_name,
             }
 
-    # ── Raven deep research path ──────────────────────────────────────────
+    # ── Raven deep research path (sole generator) ─────────────────────────
     markdown_corpus = state.get("pruned_context", "")
-    if markdown_corpus:
-        from raven_bridge import generate_skill_with_raven, is_raven_available
-
-        if is_raven_available():
-            print(
-                f"[codegen_sub_agent] Raven available — dispatching deep research for {state['target_url']}"
-            )
-            result = generate_skill_with_raven(
-                markdown_corpus=markdown_corpus,
-                target_url=state["target_url"],
-                task_prompt=state.get(
-                    "task_prompt", "Generate comprehensive EVE skill bundle."
-                ),
-                include_mcp=state.get("include_mcp", False),
-                pages=state.get("bulk_markdowns") or None,
-            )
-            if result["success"]:
-                print(
-                    f"[codegen_sub_agent] Raven generated EVE bundle in {result['attempt_count']} attempt(s)"
-                )
-                return {
-                    "skill_content": result["skill_content"],
-                    "folder_name": folder_name,
-                }
-            print(
-                f"[codegen_sub_agent] Raven failed after {result['attempt_count']} attempt(s) — falling back to Gemini"
-            )
-
-    # ── Gemini fallback path ─────────────────────────────────────────────
-    prompt_path = os.path.join(os.path.dirname(__file__), "skill_creator_prompt.txt")
-    with open(prompt_path) as f:
-        skill_creator_prompt = f.read()
-
-    sys_msg = SystemMessage(
-        content=(
-            "You are an expert skill creator agent. Based on the scraped URL analysis, "
-            "generate the final agent output using the Eve framework structure.\n"
-            "Produce all files required for the skill.\n\n"
-            "FOLLOW THESE EXPERT INSTRUCTIONS FOR HOW A SKILL SHOULD BE WRITTEN:\n\n"
-            f"{skill_creator_prompt}"
+    if not markdown_corpus:
+        raise RuntimeError(
+            "codegen_sub_agent: no documentation corpus (pruned_context) to "
+            "research; refusing to generate an unsourced skill"
         )
+
+    from raven_bridge import generate_skill_card_with_raven
+
+    print(
+        f"[codegen_sub_agent] Dispatching deep research for {state['target_url']}"
     )
-
-    try:
-        response = structured_llm.invoke(
-            [
-                sys_msg,
-                HumanMessage(
-                    content=f"Task: {state['task_prompt']}\n\nAnalysis:\n{state.get('analysis', '')}\n\nContext:\n{state.get('pruned_context', '')}"
-                ),
-            ]
-        )
-        return {
-            "skill_content": json.dumps(response.files, indent=2),
-            "folder_name": folder_name,
-        }
-    except Exception as e:
-        print(f"[codegen_sub_agent] Error during structured skill generation: {e}")
-        target_url = state.get('target_url', 'unknown')
-        clean_name = folder_name.lower()
-        fallback_skill_md = f"""---
-name: {clean_name}
-description: Official EVE agent skill for {target_url} compiled via Raven Deep Research. Use when working with {target_url} APIs, CLI tools, or SDK setup.
-license: Apache-2.0
-compatibility: Universal runtime
-metadata:
-  author: skillmaker
-  version: "1.0"
----
-
-# SkillOpt Trained Skill: {target_url}
-
-## Overview & Domain Expertise
-Generated based on analysis:
-{state.get('analysis', 'No analysis available.')}
-
-## Progressive Disclosure Strategy
-1. **Advertise (~100 tokens)**: Triggers on queries related to {target_url}.
-2. **Load (<5000 tokens)**: Load operational CLI/SDK rules and API methods.
-3. **Read Resources**: Refer to `references/POLICY_FAQ.md` for policy and edge cases.
-4. **Run Scripts**: Execute `scripts/validate.py` for health checks.
-
-## Directives
-1. Use official CLI & SDK integration patterns.
-2. Enforce negative constraints and zero-token interception rules.
-"""
-        return {
-            "skill_content": json.dumps(
-                {
-                    "instructions.md": f"# Lead Agent Coordinator\nAuto-generated skill for {target_url}.",
-                    "subagents/specialist.md": f"# Specialist Subagent\nTask execution subagent for {target_url}.",
-                    "skills/SKILL.md": fallback_skill_md,
-                    "rules/boundary_checks.md": "# Boundary & Safety Rules\n1. Validate API payloads.\n2. Retry network calls with backoff.",
-                    "scripts/validate.py": "# Skill Validation\nprint('Validating skill...')\n",
-                    "references/POLICY_FAQ.md": f"# Usage FAQ\nGuidance for {target_url}.\n",
-                    "assets/template.md": "{\n  \"version\": \"1.0\"\n}\n",
-                },
-                indent=2,
-            ),
-            "folder_name": folder_name,
-        }
+    return generate_skill_card_with_raven(
+        state,
+        markdown_corpus=markdown_corpus,
+        pages=state.get("bulk_markdowns") or None,
+    )
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
