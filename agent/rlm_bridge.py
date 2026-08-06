@@ -82,7 +82,8 @@ def _build_rlm_brief(
     return textwrap.dedent(f"""\
     You are an expert EVE Skill Bundle creator. You have access to a large
     documentation corpus through the ``rlm`` tool, exposed as variable ``P``
-    ({page_count} pages, {corpus_chars:,} chars total).
+    ({page_count} pages, {corpus_chars:,} chars total) and as knowledge graph
+    ``G`` built from the same corpus.
 
     ## Target URL
     {target_url}
@@ -96,10 +97,21 @@ def _build_rlm_brief(
       * P.search("regex") for targeted snippets with offsets
       * P.sections(), P.headings(2), P.chunk(4000) to map structure
       * P.lines(100, 400), P[1000:2000], P.find("needle"), P.count("needle")
+    G is the corpus graphified (Doc -> Section -> Chunk nodes, plus
+    Chunk -MENTIONS-> Entity). Useful expressions:
+      * G.summary(), G.search("query", 5) — ranked entry chunks
+      * G.get(node_id), G.neighbors(node_id) — expand around a relevant node
+      * G.find(label, {{"key": "value"}}) — exact property lookup
+      * G.subgraph(["node_id", ...], 2) — local context around seeds
+    Start with G.search() to find entry points, then expand through the graph
+    to the parent Section/Doc or related Entities instead of dumping slices.
+
     For many focused sub-questions, delegate to parallel sub-LLM calls:
       * llm_batch(["question about page A", "question about section B", ...])
+    To synthesize a sub-query over a specific set of graph nodes:
+      * recurse("question", ["node_id_1", "node_id_2", ...])
     Sub-LLM calls are depth-1 only, run in parallel, and respect a hard token
-    budget and timeout. Keep individual P slices small; outputs are capped.
+    budget and timeout. Finish with answer(your_synthesis, evidence=[node_ids]).
 
     ## Output Format
     Generate a complete EVE Skill Bundle as a JSON object with file paths as keys

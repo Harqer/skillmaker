@@ -215,7 +215,8 @@ def register(app: typer.Typer) -> None:
             help=(
                 "Path to a documentation corpus for the RLM middle layer "
                 "(JSON {url: markdown} or plain text). Exposed to the agent "
-                "as variable P via the rlm tool."
+                "as variable P (raw corpus) and G (knowledge graph) via the "
+                "rlm tool."
             ),
         ),
     ):
@@ -349,7 +350,10 @@ def register(app: typer.Typer) -> None:
                 model=config.agents.defaults.model,
                 limits=rlm_limits_from_env(),
             )
-            console.print(f"[dim]RLM corpus loaded: {len(corpus_text):,} chars / {len(corpus_pages)} pages[/dim]")
+            console.print(
+                f"[dim]RLM corpus loaded: {len(corpus_text):,} chars / {len(corpus_pages)} pages, "
+                f"graph: {rlm_environment.graph.describe()}[/dim]"
+            )
 
         agent_loop = AgentLoop(
             provider=provider,

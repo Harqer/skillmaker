@@ -1,10 +1,11 @@
 """Sandboxed Python REPL for the RLM environment.
 
 Evaluates a single expression (``ast.parse(code, mode="eval")``) against a
-strict allowlist of names and attributes. Only the corpus variable ``P``,
-``len``, and ``llm_batch(...)`` are reachable; imports, assignments,
-comprehensions, lambdas, and attribute chains off arbitrary objects are
-rejected so an adversarial or sloppy expression cannot escape the sandbox.
+strict allowlist of names and attributes. Only the corpus variable ``P``, the
+knowledge graph ``G``, ``len``, ``llm_batch(...)``, ``recurse(...)`` and
+``answer(...)`` are reachable; imports, assignments, comprehensions, lambdas,
+and attribute chains off arbitrary objects are rejected so an adversarial or
+sloppy expression cannot escape the sandbox.
 """
 
 from __future__ import annotations
@@ -13,6 +14,7 @@ import ast
 from typing import Any, Callable
 
 from raven.agent.rlm.corpus import RLMCorpus
+from raven.agent.rlm.graph import RLMGraph
 
 
 class RLMReplError(ValueError):
@@ -36,6 +38,20 @@ _P_ALLOWED = {
     "lines",
 }
 
+#: Attribute names reachable off the knowledge graph object.
+_G_ALLOWED = {
+    "find",
+    "get",
+    "neighbors",
+    "subgraph",
+    "search",
+    "summary",
+    "describe",
+    "scope_text",
+    "chunk_count",
+    "node_count",
+}
+
 
 class BatchCommand:
     """Sentinel produced by ``llm_batch(...)`` inside the REPL.
@@ -46,6 +62,34 @@ class BatchCommand:
 
     def __init__(self, prompts: list[str]) -> None:
         self.prompts = prompts
+
+
+class RecurseCommand:
+    """Sentinel produced by ``recurse(...)`` inside the REPL.
+
+    Evaluation returns this to the environment, which builds a scoped context
+    from the referenced graph nodes and dispatches one sub-LLM call through
+    the loop's ``LLMProvider``; it never calls a backend directly.
+    """
+
+    def __init__(self, query: str, node_ids: list[str]) -> None:
+        self.query = query
+        self.node_ids = node_ids
+
+
+class Answer:
+    """Final-answer marker produced by ``answer(text, evidence)``.
+
+    Carries the synthesis text and the evidence node ids so the environment
+    can log them; serialization renders the text alone.
+    """
+
+    def __init__(self, text: str, evidence: list[str]) -> None:
+        self.text = text
+        self.evidence = evidence
+
+    def __str__(self) -> str:
+        return self.text
 
 
 _BINOPS: dict[type[ast.operator], Callable[[Any, Any], Any]] = {
@@ -75,15 +119,19 @@ _COMPARISONS: dict[type[ast.cmpop], Callable[[Any, Any], bool]] = {
 
 
 class RLMRepl:
-    """Evaluate single expressions against the corpus under an allowlist."""
+    """Evaluate single expressions against the corpus and graph under an allowlist."""
 
     def __init__(
         self,
         corpus: RLMCorpus,
         llm_batch: Callable[[list[str]], BatchCommand],
+        graph: RLMGraph | None = None,
+        recurse: Callable[[str, list[str]], RecurseCommand] | None = None,
     ) -> None:
         self._corpus = corpus
         self._llm_batch = llm_batch
+        self._graph = graph
+        self._recurse = recurse
 
     def evaluate(self, code: str) -> Any:
         if not code or not code.strip():
@@ -153,12 +201,17 @@ class RLMRepl:
 
     def _eval_attribute(self, node: ast.Attribute) -> Any:
         value = self._eval(node.value)
-        if value is not self._corpus:
-            raise RLMReplError("attribute access is only allowed on P")
-        if node.attr not in _P_ALLOWED:
-            allowed = ", ".join(sorted(_P_ALLOWED))
-            raise RLMReplError(f"P.{node.attr} is not available; allowed: {allowed}")
-        return getattr(self._corpus, node.attr)
+        if value is self._corpus:
+            if node.attr not in _P_ALLOWED:
+                allowed = ", ".join(sorted(_P_ALLOWED))
+                raise RLMReplError(f"P.{node.attr} is not available; allowed: {allowed}")
+            return getattr(self._corpus, node.attr)
+        if value is self._graph:
+            if node.attr not in _G_ALLOWED:
+                allowed = ", ".join(sorted(_G_ALLOWED))
+                raise RLMReplError(f"G.{node.attr} is not available; allowed: {allowed}")
+            return getattr(self._graph, node.attr)
+        raise RLMReplError("attribute access is only allowed on P or G")
 
     def _eval_call(self, node: ast.Call) -> Any:
         if isinstance(node.func, ast.Name):
@@ -170,21 +223,30 @@ class RLMRepl:
                 return len(self._eval(node.args[0]))
             if node.func.id == "llm_batch":
                 return self._eval_llm_batch(node)
+            if node.func.id == "recurse":
+                return self._eval_recurse(node)
+            if node.func.id == "answer":
+                return self._eval_answer(node)
             raise RLMReplError(f"unknown function: {node.func.id!r}")
         if isinstance(node.func, ast.Attribute):
             value = self._eval(node.func.value)
-            if value is not self._corpus:
-                raise RLMReplError("method calls are only allowed on P")
-            if node.func.attr not in _P_ALLOWED:
-                raise RLMReplError(f"P.{node.func.attr} is not available")
-            method = getattr(self._corpus, node.func.attr)
+            if value is self._corpus:
+                if node.func.attr not in _P_ALLOWED:
+                    raise RLMReplError(f"P.{node.func.attr} is not available")
+                method = getattr(self._corpus, node.func.attr)
+            elif value is self._graph:
+                if node.func.attr not in _G_ALLOWED:
+                    raise RLMReplError(f"G.{node.func.attr} is not available")
+                method = getattr(self._graph, node.func.attr)
+            else:
+                raise RLMReplError("method calls are only allowed on P or G")
             args = [self._eval(arg) for arg in node.args]
             kwargs = {kw.arg: self._eval(kw.value) for kw in node.keywords if kw.arg is not None}
             try:
                 return method(*args, **kwargs)
             except TypeError as exc:
-                raise RLMReplError(f"P.{node.func.attr}(...) {exc}") from exc
-        raise RLMReplError("call target must be len, llm_batch, or a P method")
+                raise RLMReplError(f"{value.__class__.__name__}.{node.func.attr}(...) {exc}") from exc
+        raise RLMReplError("call target must be len, llm_batch, recurse, answer, or a P/G method")
 
     def _eval_llm_batch(self, node: ast.Call) -> BatchCommand:
         if node.keywords:
@@ -205,11 +267,50 @@ class RLMRepl:
                 raise RLMReplError("llm_batch() prompts must be non-empty strings")
         return self._llm_batch(prompts)
 
+    def _eval_recurse(self, node: ast.Call) -> RecurseCommand:
+        if self._recurse is None or self._graph is None:
+            raise RLMReplError("recurse() requires the knowledge graph G")
+        if node.keywords:
+            raise RLMReplError("recurse() only accepts positional query and node_ids")
+        if len(node.args) != 2:
+            raise RLMReplError("recurse(query, node_ids) requires exactly two arguments")
+        query = self._eval(node.args[0])
+        node_ids = self._eval(node.args[1])
+        if not isinstance(query, str) or not query.strip():
+            raise RLMReplError("recurse() query must be a non-empty string")
+        if not isinstance(node_ids, (list, tuple)) or not node_ids:
+            raise RLMReplError("recurse() node_ids must be a non-empty list of node ids")
+        known = {nid for nid in node_ids if isinstance(nid, str) and self._graph.has(nid)}
+        if not known:
+            raise RLMReplError("recurse() node_ids must be valid graph node ids")
+        return self._recurse(query, [nid for nid in node_ids if nid in known])
+
+    def _eval_answer(self, node: ast.Call) -> Answer:
+        if node.keywords:
+            raise RLMReplError("answer() only accepts positional text and evidence")
+        if not node.args or len(node.args) > 2:
+            raise RLMReplError("answer(text, evidence=[]) requires one or two arguments")
+        text = self._eval(node.args[0])
+        if not isinstance(text, str):
+            raise RLMReplError("answer() text must be a string")
+        evidence: list[str] = []
+        if len(node.args) == 2:
+            value = self._eval(node.args[1])
+            if isinstance(value, (list, tuple)):
+                evidence = [item for item in value if isinstance(item, str)]
+            elif isinstance(value, str):
+                evidence = [value]
+        return Answer(text, evidence)
+
     def _lookup(self, name: str) -> Any:
         if name == "P":
             return self._corpus
+        if name == "G":
+            if self._graph is None:
+                raise RLMReplError("name 'G' is not available (no knowledge graph loaded)")
+            return self._graph
         if name == "len":
             return len
         if name in {"True", "False", "None"}:
             return {"True": True, "False": False, "None": None}[name]
-        raise RLMReplError(f"name {name!r} is not allowed; available: P, len, llm_batch")
+        raise RLMReplError(f"name {name!r} is not allowed; available: P, G, len, llm_batch, recurse, answer")

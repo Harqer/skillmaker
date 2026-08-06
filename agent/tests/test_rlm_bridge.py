@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import json
 
-import rlm_bridge
 import raven_bridge
+import rlm_bridge
 
 GOOD_BUNDLE = json.dumps(
     {
