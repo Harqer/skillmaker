@@ -4,13 +4,15 @@ orchestrator.py — LangGraph skill-generation pipeline with Sub-Agent Hierarchi
 Graph topology (with robust, production-grade sub-agents):
   START
     └─► scraper_sub_agent (Sub-Agent Graph: scrapes & prunes doc context with RedisVL SemanticCache)
-          └─► codegen_sub_agent (Sub-Agent Graph: generates Eve files using LangChain Structured JSON & scaffolds FastMCP)
+          └─► codegen_sub_agent (Sub-Agent Graph: generates EVE files via Raven deep research & scaffolds FastMCP)
                 └─► security_sub_agent (Sub-Agent Graph: sanitizes, ingests dynamically, and runs Self-Evolution)
                       └─► END
 
 Key Enhancements & Dynamic Retrieval:
   • ZERO-TOKEN INTERCEPTION is powered by a high-performance RedisVL SemanticCache instance.
-  • Eve skill format output generation is governed by a strict Pydantic schema using LangChain's `.with_structured_output` API.
+  • EVE skill format output generation is driven by the Raven deep research harness
+    (see raven_bridge.py) with bounded retries, fast-fail extraction, and loud
+    failure — there is no silent Gemini/templated fallback for skill content.
   • Content retrieval uses dynamic, relevance-based similarity searches (search_dynamic) instead of hardcoded limits.
 """
 
@@ -21,15 +23,17 @@ import uuid
 from typing import TypedDict
 
 import config  # noqa — sets LANGCHAIN_TRACING_V2, GOOGLE_API_KEY, etc.
-from config import REDIS_URI
+from config import GEMINI_API_KEY, REDIS_URI
 from context_retriever import get_context_tools
 from context_surfaces import SkillVectorStore
 from databricks_store import SkillRecord
 from databricks_store import get_store as get_databricks_store
-from langchain_community.cache import RedisSemanticCache
+from langchain_core.caches import RETURN_VAL_TYPE, BaseCache
 from langchain_core.globals import set_llm_cache
+from langchain_core.load import dumps, loads
 from langchain_core.messages import HumanMessage, SystemMessage
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
+from langchain_core.outputs import Generation
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.redis import RedisSaver
 from langgraph.graph import END, START, StateGraph
@@ -38,28 +42,84 @@ from memory_client import RedisAgentMemoryClient
 from pydantic import BaseModel, Field
 from redis import Redis
 from redisvl.extensions.llmcache import SemanticCache
+from redisvl.utils.vectorize.googlegenai import GoogleGenAIVectorizer
 from scraper import bulk_scrape_docs, scrape_docs
 from security_sandbox import sanitize_mcp_script, sanitize_skill_content
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 # ── RedisVL & LangChain LLM Cache ───────────────────────────────────────────
 
+
+class RedisVLSemanticLLMCache(BaseCache):
+    """LangChain LLM cache backed by a RedisVL SemanticCache.
+
+    ``langchain_community.cache.RedisSemanticCache`` is a legacy wrapper over
+    the retired langchain Redis vectorstore, which leaks ``index_name`` into
+    ``redis.from_url`` and breaks against redis-py v7. This adapter speaks the
+    same ``BaseCache`` protocol but stores/retrieves through the modern,
+    supported RedisVL ``SemanticCache`` (same engine as the doc cache).
+    """
+
+    def __init__(self, semantic_cache: SemanticCache, ttl: int = 604800) -> None:
+        self._cache = semantic_cache
+        self._ttl = ttl
+
+    def lookup(self, prompt: str, llm_string: str) -> RETURN_VAL_TYPE:
+        generations: list[Generation] = []
+        for hit in self._cache.check(prompt):
+            try:
+                generations.extend(loads(hit["response"]))
+            except (ValueError, TypeError):
+                generations.extend(_load_generations_from_json(hit["response"]))
+        return generations or None
+
+    def update(self, prompt: str, llm_string: str, return_val: RETURN_VAL_TYPE) -> None:
+        for gen in return_val:
+            if not isinstance(gen, Generation):
+                raise TypeError(
+                    "RedisVLSemanticLLMCache only supports caching of "
+                    f"normal LLM generations, got {type(gen)}"
+                )
+        self._cache.store(prompt, dumps(return_val), ttl=self._ttl)
+
+    def clear(self, **kwargs: object) -> None:
+        self._cache.clear()
+
+
+def _load_generations_from_json(json_str: str) -> list[Generation]:
+    import json
+
+    return [
+        Generation(text=item["text"], generation_info=item.get("generation_info"))
+        for item in json.loads(json_str)
+    ]
+
+
 redis_client = Redis.from_url(REDIS_URI)
 try:
-    set_llm_cache(
-        RedisSemanticCache(
-            redis_url=REDIS_URI,
-            embedding=GoogleGenerativeAIEmbeddings(model="models/text-embedding-004"),
-            score_threshold=0.15,
-        )
+    llm_semantic_cache = SemanticCache(
+        index_name="llm_cache",
+        redis_url=REDIS_URI,
+        distance_threshold=0.15,
+        vectorizer=GoogleGenAIVectorizer(
+            model="gemini-embedding-001",
+            api_config={"api_key": GEMINI_API_KEY},
+        ),
     )
-    print("[orchestrator] Redis Semantic LLM Cache enabled (LangCache active)")
+    set_llm_cache(RedisVLSemanticLLMCache(llm_semantic_cache))
+    print("[orchestrator] Redis Semantic LLM Cache enabled (RedisVL active)")
 except Exception as e:
     print(f"[orchestrator] Warning: Failed to set Redis Semantic LLM cache: {e}")
 
 try:
     doc_cache = SemanticCache(
-        index_name="doc_scrape_cache", redis_url=REDIS_URI, distance_threshold=0.15
+        index_name="doc_scrape_cache",
+        redis_url=REDIS_URI,
+        distance_threshold=0.15,
+        vectorizer=GoogleGenAIVectorizer(
+            model="gemini-embedding-001",
+            api_config={"api_key": GEMINI_API_KEY},
+        ),
     )
     print("[orchestrator] RedisVL Semantic Cache active for documentation indexing")
 except Exception as e:
@@ -69,17 +129,6 @@ except Exception as e:
 llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0)
 agent_memory = RedisAgentMemoryClient()
 skill_store = SkillVectorStore()
-
-# ── Structured JSON output schema for Eve Framework ────────────────────────
-
-
-class EveSkill(BaseModel):
-    files: dict[str, str] = Field(
-        description="A dictionary mapping file paths (e.g., 'agent.ts', 'instructions.md', 'skills/api.md', 'tools/fetch.ts') to their exact string content."
-    )
-
-
-structured_llm = llm.with_structured_output(EveSkill)
 
 
 class DocScraperAnalysis(BaseModel):
@@ -332,15 +381,16 @@ scraper_builder.add_edge("scrape_and_analyze", END)
 scraper_subgraph = scraper_builder.compile()
 
 
-# ── Sub-Agent 2: Codegen Subgraph (Raven Deep Research + Gemini Fallback) ────
+# ── Sub-Agent 2: Codegen Subgraph (Raven Deep Research) ─────────────────────
 
 
-@retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
 def generate_skill_card_node(state: CodegenState):
-    """Generate skill content — Raven deep research path with Gemini fallback.
+    """Generate skill content — Raven deep research path only.
 
-    Primary: Raven agent harness with deep research and Loop Engineering patterns.
-    Fallback: LangChain Structured Output (Gemini) with EveSkill schema.
+    No silent fallback: the node either returns a verified Raven EVE bundle
+    (or documentation-provided skills) or raises. Failures are surfaced loudly
+    instead of degrading to a Gemini/templated stub, so the workflow can never
+    ship an unsourced skill card silently.
     """
     folder_name = (
         (state["target_url"].split("/")[-1] or "custom-skill").replace(".", "-").lower()
@@ -358,109 +408,24 @@ def generate_skill_card_node(state: CodegenState):
                 "folder_name": folder_name,
             }
 
-    # ── Raven deep research path ──────────────────────────────────────────
+    # ── Raven deep research path (sole generator) ─────────────────────────
     markdown_corpus = state.get("pruned_context", "")
-    if markdown_corpus:
-        from raven_bridge import generate_skill_with_raven, is_raven_available
-
-        if is_raven_available():
-            print(
-                f"[codegen_sub_agent] Raven available — dispatching deep research for {state['target_url']}"
-            )
-            result = generate_skill_with_raven(
-                markdown_corpus=markdown_corpus,
-                target_url=state["target_url"],
-                task_prompt=state.get(
-                    "task_prompt", "Generate comprehensive EVE skill bundle."
-                ),
-                include_mcp=state.get("include_mcp", False),
-                pages=state.get("bulk_markdowns") or None,
-            )
-            if result["success"]:
-                print(
-                    f"[codegen_sub_agent] Raven generated EVE bundle in {result['attempt_count']} attempt(s)"
-                )
-                return {
-                    "skill_content": result["skill_content"],
-                    "folder_name": folder_name,
-                }
-            print(
-                f"[codegen_sub_agent] Raven failed after {result['attempt_count']} attempt(s) — falling back to Gemini"
-            )
-
-    # ── Gemini fallback path ─────────────────────────────────────────────
-    prompt_path = os.path.join(os.path.dirname(__file__), "skill_creator_prompt.txt")
-    with open(prompt_path) as f:
-        skill_creator_prompt = f.read()
-
-    sys_msg = SystemMessage(
-        content=(
-            "You are an expert skill creator agent. Based on the scraped URL analysis, "
-            "generate the final agent output using the Eve framework structure.\n"
-            "Produce all files required for the skill.\n\n"
-            "FOLLOW THESE EXPERT INSTRUCTIONS FOR HOW A SKILL SHOULD BE WRITTEN:\n\n"
-            f"{skill_creator_prompt}"
+    if not markdown_corpus:
+        raise RuntimeError(
+            "codegen_sub_agent: no documentation corpus (pruned_context) to "
+            "research; refusing to generate an unsourced skill"
         )
+
+    from raven_bridge import generate_skill_card_with_raven
+
+    print(
+        f"[codegen_sub_agent] Dispatching deep research for {state['target_url']}"
     )
-
-    try:
-        response = structured_llm.invoke(
-            [
-                sys_msg,
-                HumanMessage(
-                    content=f"Task: {state['task_prompt']}\n\nAnalysis:\n{state.get('analysis', '')}\n\nContext:\n{state.get('pruned_context', '')}"
-                ),
-            ]
-        )
-        return {
-            "skill_content": json.dumps(response.files, indent=2),
-            "folder_name": folder_name,
-        }
-    except Exception as e:
-        print(f"[codegen_sub_agent] Error during structured skill generation: {e}")
-        target_url = state.get('target_url', 'unknown')
-        clean_name = folder_name.lower()
-        fallback_skill_md = f"""---
-name: {clean_name}
-description: Official EVE agent skill for {target_url} compiled via Raven Deep Research. Use when working with {target_url} APIs, CLI tools, or SDK setup.
-license: Apache-2.0
-compatibility: Universal runtime
-metadata:
-  author: skillmaker
-  version: "1.0"
----
-
-# SkillOpt Trained Skill: {target_url}
-
-## Overview & Domain Expertise
-Generated based on analysis:
-{state.get('analysis', 'No analysis available.')}
-
-## Progressive Disclosure Strategy
-1. **Advertise (~100 tokens)**: Triggers on queries related to {target_url}.
-2. **Load (<5000 tokens)**: Load operational CLI/SDK rules and API methods.
-3. **Read Resources**: Refer to `references/POLICY_FAQ.md` for policy and edge cases.
-4. **Run Scripts**: Execute `scripts/validate.py` for health checks.
-
-## Directives
-1. Use official CLI & SDK integration patterns.
-2. Enforce negative constraints and zero-token interception rules.
-"""
-        return {
-            "skill_content": json.dumps(
-                {
-                    "instructions.md": f"# Lead Agent Coordinator\nAuto-generated skill for {target_url}.",
-                    "subagents/specialist.md": f"# Specialist Subagent\nTask execution subagent for {target_url}.",
-                    "skills/SKILL.md": fallback_skill_md,
-                    "rules/boundary_checks.md": "# Boundary & Safety Rules\n1. Validate API payloads.\n2. Retry network calls with backoff.",
-                    "scripts/validate.py": "# Skill Validation\nprint('Validating skill...')\n",
-                    "references/POLICY_FAQ.md": f"# Usage FAQ\nGuidance for {target_url}.\n",
-                    "assets/template.md": "{\n  \"version\": \"1.0\"\n}\n",
-                },
-                indent=2,
-            ),
-            "folder_name": folder_name,
-        }
+    return generate_skill_card_with_raven(
+        state,
+        markdown_corpus=markdown_corpus,
+        pages=state.get("bulk_markdowns") or None,
+    )
 
 
 @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))

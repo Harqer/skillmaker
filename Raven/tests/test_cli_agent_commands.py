@@ -37,6 +37,24 @@ def test_agent_help_works() -> None:
     assert "--workspace" in r.stdout
     assert "--config" in r.stdout
     assert "--markdown" in r.stdout
+    assert "--json" in r.stdout
+
+
+def test_json_renderer_emits_raw_output_no_banner(capsys) -> None:
+    """``--json`` must print the response verbatim: no banner, no rich styling,
+    no reflow — so machine consumers get byte-identical parseable output."""
+    from raven.cli.agent_commands import _make_response_renderer
+
+    payload = '{"instructions.md": "x", "skills/SKILL.md": "y"}'
+    renderer = _make_response_renderer(markdown=False, json_output=True)
+    renderer(payload)
+    captured = capsys.readouterr()
+    assert captured.out == payload + "\n"
+    assert "Raven" not in captured.out
+    assert "\x1b[" not in captured.out
+
+    plain = _make_response_renderer(markdown=True, json_output=False)
+    assert callable(plain)
 
 
 def test_agent_without_api_key_exits_cleanly(tmp_config: Path) -> None:

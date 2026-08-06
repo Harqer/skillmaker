@@ -45,3 +45,6 @@ tsconfig.tsbuildinfo
 
 # Generated skill card artifacts
 SkillOpt/skillopt/envs/skill_card/
+
+# Go runner build output
+backend/go/bin/
