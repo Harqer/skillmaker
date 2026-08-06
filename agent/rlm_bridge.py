@@ -186,6 +186,7 @@ def generate_skill_with_rlm(
             capture_output=True,
             text=True,
             timeout=rlm_timeout,
+            check=False,
             env=raven_env,
         )
 
@@ -233,7 +234,7 @@ def generate_skill_with_rlm(
             "skill_content": "",
             "error": f"RLM path timed out after {rlm_timeout}s",
         }
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001
         return {
             "success": False,
             "eve_files": {},
