@@ -27,11 +27,14 @@ from raven_bridge import (
     is_raven_available,
     verify_skill_bundle,
 )
+from rlm_routing import RLM_MAX_CORPUS_CHARS
 
 # ── RLM constants ──────────────────────────────────────────────────────────
 
 RLM_TIMEOUT_SECONDS = 240  # generous: root model + llm_batch + synthesis
-RLM_MAX_CORPUS_CHARS = 4_000_000  # guard against unbounded corpus files
+
+#: Corpus-size guard, reconciled to the shared routing module (Contract 1).
+RLM_MAX_CORPUS_CHARS = RLM_MAX_CORPUS_CHARS
 
 
 def _cap_pages(pages: dict[str, str], max_chars: int) -> dict[str, str]:

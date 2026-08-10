@@ -2,8 +2,12 @@ package main
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestExtractEveBundle(t *testing.T) {
@@ -21,6 +25,11 @@ func TestExtractEveBundle(t *testing.T) {
 		{
 			name:   "empty",
 			output: "",
+			ok:     false,
+		},
+		{
+			name:   "empty JSON object",
+			output: "{}",
 			ok:     false,
 		},
 		{
@@ -91,22 +100,50 @@ func TestStructuralReason(t *testing.T) {
 				}
 				return
 			}
-			if !contains(got, tc.want) {
+			if !strings.Contains(got, tc.want) {
 				t.Fatalf("structuralReason = %q, want substring %q", got, tc.want)
 			}
 		})
 	}
 }
 
-func contains(s, sub string) bool {
-	return len(s) >= len(sub) && (sub == "" || indexOf(s, sub) >= 0)
-}
+func TestRunResearchRespectsDeadline(t *testing.T) {
+	// A raven module that sleeps longer than the deadline: the runner must
+	// terminate it and report a clean structural deadline failure instead of
+	// hanging on the caller's budget.
+	oldDeadline, oldWait := researchDeadline, waitDelay
+	researchDeadline = 300 * time.Millisecond
+	waitDelay = 1 * time.Second
+	defer func() {
+		researchDeadline, waitDelay = oldDeadline, oldWait
+	}()
 
-func indexOf(s, sub string) int {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return i
-		}
+	dir := t.TempDir()
+	ravenMod := filepath.Join(dir, "raven")
+	if err := os.MkdirAll(ravenMod, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	return -1
+	// A module that exits after a delay that exceeds the deadline.
+	if err := os.WriteFile(
+		filepath.Join(ravenMod, "__init__.py"),
+		[]byte("import time\ntime.sleep(10)\n"),
+		0o644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// Point -m raven at the temp dir via a wrapper module that imports the
+	// sleeping module. PYTHONPATH picks up the temp dir first.
+	t.Setenv("PYTHONPATH", dir)
+
+	res := runResearch("brief", "python3")
+	if res.Success {
+		t.Fatalf("expected deadline failure, got success: %+v", res)
+	}
+	if !res.Structural {
+		t.Fatalf("expected structural failure, got %+v", res)
+	}
+	if !strings.Contains(res.Error, "deadline") {
+		t.Fatalf("expected deadline error, got %q", res.Error)
+	}
 }

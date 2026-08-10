@@ -115,6 +115,10 @@ DATABASE_URL: str = _require("DATABASE_URL")
 REDIS_URI: str = _optional("REDIS_URI", "redis://default:tG26bjynks3Kf2jWk0LKH7A4kpGLAd1b@instrument-group-chartreuse-54560.db.redis.io:17884")
 
 # ── LLM / AI ─────────────────────────────────────────────────────────────────
+# Resolve GEMINI_API_KEY from its GOOGLE_API_KEY alias before binding the module
+# constant, so a deployment that sets only the canonical Google key still works.
+if not os.environ.get("GEMINI_API_KEY"):
+    os.environ["GEMINI_API_KEY"] = os.environ.get("GOOGLE_API_KEY", "")
 GEMINI_API_KEY: str = _require("GEMINI_API_KEY")
 LANGSMITH_API_KEY: str = _optional("LANGSMITH_API_KEY", "")
 LANGSERVE_API_KEY: str = _optional("LANGSERVE_API_KEY")

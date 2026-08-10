@@ -429,7 +429,7 @@ def register(app: typer.Typer) -> None:
 
         # Show spinner when logs are off (no output to miss); skip when logs are on
         def _thinking_ctx():
-            if logs:
+            if logs or json_output:
                 from contextlib import nullcontext
 
                 return nullcontext()

@@ -18,8 +18,8 @@ resolve_go() {
 	return 1
 }
 
-GO_BIN="$(resolve_go)"
-if [ -z "$GO_BIN" ]; then
+GO_BIN=""
+if ! GO_BIN="$(resolve_go)"; then
 	echo "error: no go toolchain found on PATH or in common locations" >&2
 	exit 1
 fi

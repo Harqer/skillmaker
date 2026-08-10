@@ -43,6 +43,11 @@ from pydantic import BaseModel, Field
 from redis import Redis
 from redisvl.extensions.llmcache import SemanticCache
 from redisvl.utils.vectorize.googlegenai import GoogleGenAIVectorizer
+from rlm_routing import (
+    PRUNED_CONTEXT_FALLBACK_CHARS,
+    RLM_SYNTHESIS_EXCERPT_CHARS,
+    should_route_through_rlm,
+)
 from scraper import bulk_scrape_docs, scrape_docs
 from security_sandbox import sanitize_mcp_script, sanitize_skill_content
 from tenacity import retry, stop_after_attempt, wait_exponential
@@ -64,9 +69,16 @@ class RedisVLSemanticLLMCache(BaseCache):
         self._cache = semantic_cache
         self._ttl = ttl
 
+    @staticmethod
+    def _cache_key(prompt: str, llm_string: str) -> str:
+        # Namespace the cache entry by model/params so distinct llm_strings
+        # (different models, temperatures, etc.) never collide on the same
+        # prompt inside the shared RedisVL semantic index.
+        return f"{llm_string}\n{prompt}"
+
     def lookup(self, prompt: str, llm_string: str) -> RETURN_VAL_TYPE:
         generations: list[Generation] = []
-        for hit in self._cache.check(prompt):
+        for hit in self._cache.check(self._cache_key(prompt, llm_string)):
             try:
                 generations.extend(loads(hit["response"]))
             except (ValueError, TypeError):
@@ -80,7 +92,7 @@ class RedisVLSemanticLLMCache(BaseCache):
                     "RedisVLSemanticLLMCache only supports caching of "
                     f"normal LLM generations, got {type(gen)}"
                 )
-        self._cache.store(prompt, dumps(return_val), ttl=self._ttl)
+        self._cache.store(self._cache_key(prompt, llm_string), dumps(return_val), ttl=self._ttl)
 
     def clear(self, **kwargs: object) -> None:
         self._cache.clear()
@@ -264,22 +276,33 @@ def scraper_analyze_node(state: ScraperState):
         session_id=thread_id, text=f"Documentation for {url}:\n{scraped_text}"
     )
 
-    # Retrieve pruned context with bounded limit or execute RLM REPL Infinite Context processing
-    if len(scraped_text) > 25000:
+    # Retrieve pruned context with bounded limit or execute RLM REPL Infinite Context processing.
+    # Long documents route through the RLM/REPL path (Contract 1, shared threshold).
+    if should_route_through_rlm({}, len(scraped_text)):
         print(f"[scraper_sub_agent] Large corpus detected ({len(scraped_text):,} chars). Initiating RLM REPL Infinite Context processing...")
         try:
-            from rlm_engine import recursive_research_query
-            rlm_out = recursive_research_query(
-                corpus=scraped_text,
-                task=f"Extract all API endpoints, data models, SDK functions, CLI commands, and MCP tools for {url}."
+            from rlm_go_bridge import rlm_synthesize
+
+            rlm_task = (
+                f"Extract all API endpoints, data models, SDK functions, CLI commands, "
+                f"and MCP tools for {url}."
             )
+            rlm_out = rlm_synthesize(scraped_text, task=rlm_task)
+            if not rlm_out.get("success"):
+                print(
+                    f"[scraper_sub_agent] Go RLM runner failed ({rlm_out.get('error')}); "
+                    "falling back to Python RLM engine."
+                )
+                from rlm_engine import recursive_research_query
+
+                rlm_out = recursive_research_query(corpus=scraped_text, task=rlm_task)
             if rlm_out.get("success") and rlm_out.get("answer"):
-                pruned_context = f"[RLM REPL Synthesis]\n{rlm_out['answer']}\n\n[Excerpt]\n{scraped_text[:5000]}"
+                pruned_context = f"[RLM REPL Synthesis]\n{rlm_out['answer']}\n\n[Excerpt]\n{scraped_text[:RLM_SYNTHESIS_EXCERPT_CHARS]}"
             else:
-                pruned_context = scraped_text[:12000]
+                pruned_context = scraped_text[:PRUNED_CONTEXT_FALLBACK_CHARS]
         except Exception as rlm_err:
             print(f"[scraper_sub_agent] RLM REPL fallback warning: {rlm_err}")
-            pruned_context = scraped_text[:12000]
+            pruned_context = scraped_text[:PRUNED_CONTEXT_FALLBACK_CHARS]
     else:
         pruned_results = agent_memory.search_long_term_memory(
             query=f"{state['task_prompt']} API endpoints requirements", limit=10
@@ -293,9 +316,9 @@ def scraper_analyze_node(state: ScraperState):
                     ]
                 )
             except Exception:
-                pruned_context = scraped_text[:12000]
+                pruned_context = scraped_text[:PRUNED_CONTEXT_FALLBACK_CHARS]
         else:
-            pruned_context = scraped_text[:12000]
+            pruned_context = scraped_text[:PRUNED_CONTEXT_FALLBACK_CHARS]
 
     # Use structured output to smartly analyze & extract provided skills/MCP setups
     analyzer_llm = llm.with_structured_output(DocScraperAnalysis)

@@ -18,6 +18,12 @@ import tempfile
 import textwrap
 import time
 
+from rlm_routing import (
+    BRIEF_TRUNCATION_CHARS,
+    RLM_SYNTHESIS_EXCERPT_CHARS,
+    should_route_through_rlm,
+)
+
 # ── Circuit breaker constants ─────────────────────────────────────────────
 
 MAX_GENERATION_ATTEMPTS = 3
@@ -107,36 +113,49 @@ def _build_research_brief(
 ) -> str:
     """Build a structured research brief for Raven's deep research agent using RLM for long context."""
     corpus_length = len(markdown_corpus)
-    
-    # If corpus exceeds 20,000 characters, execute Python REPL infinite context processing via MIT RLM engine
-    # to programmatically inspect, slice, and synthesize API endpoints, schemas, and logic without prompt context rot.
+
+    # Long documents route through the RLM/REPL path (Contract 1): the corpus
+    # is processed programmatically by the MIT RLM engine — inspected, sliced,
+    # and synthesized for API endpoints, schemas, and logic — without prompt
+    # context rot.
     rlm_synthesis = ""
-    if corpus_length > 20000:
+    if should_route_through_rlm({}, corpus_length):
         print(f"[raven_bridge] Corpus size ({corpus_length:,} chars) exceeds single context threshold. Running REPL Infinite Context engine...")
         try:
-            from rlm_engine import recursive_research_query
-            rlm_res = recursive_research_query(
-                corpus=markdown_corpus,
-                task=f"Extract all API endpoints, data schemas, authentication methods, workflow rules, CLI commands, and code patterns for {target_url}."
+            from rlm_go_bridge import rlm_synthesize
+
+            rlm_task = (
+                f"Extract all API endpoints, data schemas, authentication methods, "
+                f"workflow rules, CLI commands, and code patterns for {target_url}."
             )
+            rlm_res = rlm_synthesize(markdown_corpus, task=rlm_task)
+            if not rlm_res.get("success"):
+                print(
+                    f"[raven_bridge] Go RLM runner failed ({rlm_res.get('error')}); "
+                    "falling back to Python RLM engine."
+                )
+                from rlm_engine import recursive_research_query
+
+                rlm_res = recursive_research_query(corpus=markdown_corpus, task=rlm_task)
             if rlm_res.get("success") and rlm_res.get("answer"):
                 rlm_synthesis = f"\n\n## RLM REPL Infinite Context Synthesis (Zero-Context-Rot Analysis)\n{rlm_res['answer']}\n"
                 print("[raven_bridge] RLM REPL synthesis complete. Token usage reduced by ~85%.")
         except Exception as e:
             print(f"[raven_bridge] RLM REPL preprocessing warning: {e}")
 
-    # When RLM synthesis is present, pass the synthesized REPL research plus a 5,000-char excerpt instead of raw 80,000 chars.
-    # This drastically slashes token usage while preserving 100% of deep research accuracy.
+    # When RLM synthesis is present, pass the synthesized REPL research plus a
+    # bounded excerpt instead of a raw dump. This drastically slashes token
+    # usage while preserving 100% of deep research accuracy.
     if rlm_synthesis:
         corpus_section = (
             f"\n[REPL Infinite Context Mode Active - Token Usage Optimized]\n"
             f"The full documentation ({corpus_length:,} chars) was programmatically processed in Python REPL environment.\n"
             f"{rlm_synthesis}\n"
-            f"### Corpus Direct Excerpt (First 5,000 chars):\n"
-            f"{markdown_corpus[:5000]}\n"
+            f"### Corpus Direct Excerpt (First {RLM_SYNTHESIS_EXCERPT_CHARS} chars):\n"
+            f"{markdown_corpus[:RLM_SYNTHESIS_EXCERPT_CHARS]}\n"
         )
     else:
-        corpus_section = f"\n## Documentation Corpus (markdown)\n{markdown_corpus[:40000]}\n"
+        corpus_section = f"\n## Documentation Corpus (markdown)\n{markdown_corpus[:BRIEF_TRUNCATION_CHARS]}\n"
 
     return textwrap.dedent(f"""\
     You are an expert EVE Skill Bundle creator. Your task is deep research and
@@ -198,11 +217,11 @@ def generate_skill_with_raven(
     - Fast-fail: structurally unparseable output bails after the first attempt
       instead of burning full LLM regenerations on a broken output contract
 
-    The RLM/REPL middle layer is tried first when a full corpus is available
-    (``pages`` from ``bulk_scrape_docs``, or a ``markdown_corpus`` larger than
-    the 80k brief truncation): the whole corpus is loaded as ``P`` and the
-    agent reads it programmatically instead of receiving a truncated dump. On
-    any RLM failure the call degrades to the legacy truncated-brief path below.
+    The RLM/REPL middle layer is tried first when the input routes through RLM
+    (a long document OR a large number of URLs — see ``rlm_routing``): the
+    whole corpus is loaded as ``P`` and the agent reads it programmatically
+    instead of receiving a truncated dump. On any RLM failure the call degrades
+    to the legacy truncated-brief path below.
 
     Returns:
         dict with keys:
@@ -218,7 +237,9 @@ def generate_skill_with_raven(
     last_error = ""
 
     # ── RLM/REPL first: full-corpus path via ``raven agent --corpus`` ───────
-    if pages or len(markdown_corpus) > 80000:
+    # Long document OR large number of URLs routes through RLM (Contract 1);
+    # short single-input jobs keep the direct path below.
+    if should_route_through_rlm(pages, len(markdown_corpus)):
         from rlm_bridge import generate_skill_with_rlm
 
         rlm_result = generate_skill_with_rlm(
@@ -239,6 +260,7 @@ def generate_skill_with_raven(
     brief = _build_research_brief(
         markdown_corpus, target_url, task_prompt, include_mcp
     )
+    base_brief = brief
 
     while attempt < MAX_GENERATION_ATTEMPTS:
         attempt += 1
@@ -292,7 +314,7 @@ def generate_skill_with_raven(
 
         last_error = f"Verifier rejected bundle: {issues}"
         print(f"[raven_bridge] Verifier failed attempt {attempt}: {issues}")
-        brief = _append_verifier_feedback(brief, issues)
+        brief = _append_verifier_feedback(base_brief, issues)
 
     return {
         "success": False,
@@ -328,7 +350,15 @@ def _find_go_runner() -> str | None:
 
 
 def _run_go_runner(brief: str, go_bin: str) -> dict:
-    """Execute the deep-research runner, which emits a result JSON on stdout."""
+    """Execute the deep-research runner, which emits a result JSON on stdout.
+
+    Returns a normalized dict with a ``runner_error`` flag distinguishing
+    transport failures (the runner binary itself failed to run or to emit its
+    contract JSON) from research-level failures (the runner ran, but Raven
+    produced no usable EVE bundle). Only ``runner_error`` results should cause
+    the caller to retry through the direct CLI; research-level failures are
+    contract failures that re-running via a different transport cannot fix.
+    """
     with tempfile.NamedTemporaryFile(
         mode="w", suffix=".md", delete=False, encoding="utf-8"
     ) as f:
@@ -349,7 +379,7 @@ def _run_go_runner(brief: str, go_bin: str) -> dict:
         if result.returncode != 0:
             return {
                 "error": f"deep-research runner exited with code {result.returncode}: {(result.stderr or result.stdout)[:500]}",
-                "structural": True,
+                "runner_error": True,
             }
         parsed = json.loads(result.stdout or "{}")
         if parsed.get("success") and isinstance(parsed.get("eve_files"), dict):
@@ -357,24 +387,29 @@ def _run_go_runner(brief: str, go_bin: str) -> dict:
                 "eve_files": parsed["eve_files"],
                 "output": parsed.get("output", ""),
                 "error": None,
+                "runner_error": False,
                 "structural": False,
             }
         return {
             "error": parsed.get("error") or "deep-research runner produced no EVE bundle",
             "output": parsed.get("output", ""),
+            "runner_error": False,
             "structural": bool(parsed.get("structural", True)),
         }
     except json.JSONDecodeError as e:
         return {
             "error": f"deep-research runner output was not JSON: {e}",
-            "structural": True,
+            "runner_error": True,
         }
     except subprocess.TimeoutExpired:
-        return {"error": "deep-research runner timed out (120s)", "structural": True}
+        return {
+            "error": "deep-research runner timed out (120s)",
+            "runner_error": True,
+        }
     except Exception as e:
         return {
             "error": f"deep-research runner error: {e}",
-            "structural": True,
+            "runner_error": True,
         }
     finally:
         try:
@@ -385,17 +420,12 @@ def _run_go_runner(brief: str, go_bin: str) -> dict:
 
 def _run_raven_cli(brief: str) -> dict:
     """Run the vendored Raven CLI one-shot in machine-readable mode."""
-    with tempfile.NamedTemporaryFile(
-        mode="w", suffix=".md", delete=False, encoding="utf-8"
-    ) as f:
-        f.write(brief)
-        brief_path = f.name
+    raven_env = {
+        **os.environ,
+        "PYTHONUNBUFFERED": "1",
+        "TERM": "xterm-256color",
+    }
     try:
-        raven_env = {
-            **os.environ,
-            "PYTHONUNBUFFERED": "1",
-            "TERM": "xterm-256color",
-        }
         result = subprocess.run(
             [sys.executable, "-m", "raven", "agent", "-m", brief, "--json"],
             capture_output=True,
@@ -431,25 +461,31 @@ def _run_raven_cli(brief: str) -> dict:
         return {"error": "Raven timed out (120s)", "structural": True}
     except Exception as e:
         return {"error": f"Raven bridge error: {e}", "structural": True}
-    finally:
-        try:
-            os.unlink(brief_path)
-        except OSError:
-            pass
 
 
 def _run_raven_research(brief: str) -> dict:
     """Dispatch one research execution through the deep-research runner or the
     vendored CLI directly. Returns normalized dict with keys: output, eve_files,
-    error, structural.
+    error, structural, runner_error.
+
+    The Go runner is preferred when built. It is skipped only for
+    runner/transport failures (binary could not run, non-JSON output, timeout);
+    a research-level failure from the runner (it ran, but Raven produced no
+    usable bundle) is returned as-is — re-running through the CLI cannot fix a
+    broken output contract.
     """
     go_bin = _find_go_runner()
     if go_bin is not None:
         result = _run_go_runner(brief, go_bin)
         if not result.get("error"):
             return result
+        if not result.get("runner_error"):
+            print(
+                f"[raven_bridge] Go runner research failure ({result['error']}) — not retrying via CLI"
+            )
+            return result
         print(
-            f"[raven_bridge] Go runner error ({result['error']}) — falling back to direct CLI"
+            f"[raven_bridge] Go runner transport error ({result['error']}) — falling back to direct CLI"
         )
 
     cli_result = _run_raven_cli(brief)
