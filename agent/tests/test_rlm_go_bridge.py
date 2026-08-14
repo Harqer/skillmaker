@@ -136,3 +136,27 @@ def test_rlm_synthesize_oversized_corpus_warns(fake_runner, monkeypatch, capsys)
     res = rlm_go_bridge.rlm_synthesize(big, "task")
     assert res["success"] is True
     assert "exceeds RLM_MAX_CORPUS_CHARS" in capsys.readouterr().out
+
+
+# ── Contract 1: the single reconciled routing decision ───────────────────────
+
+
+def test_should_route_through_rlm_decision():
+    """The routing policy is one line: a long document OR a large number of
+    URLs routes through RLM; short single-input jobs keep the direct path."""
+    from rlm_routing import RLM_ROUTE_MIN_CHARS, should_route_through_rlm
+
+    short = "x" * 100
+    long_doc = "x" * (RLM_ROUTE_MIN_CHARS + 1)
+    assert should_route_through_rlm(None, 0) is False
+    assert should_route_through_rlm({}, len(short)) is False
+    assert should_route_through_rlm({"https://a": "one"}, len(short)) is False
+    assert should_route_through_rlm({}, len(long_doc)) is True
+    assert (
+        should_route_through_rlm({"https://a": "1", "https://b": "2"}, len(short))
+        is True
+    )
+    assert (
+        should_route_through_rlm({"https://a": "1", "https://b": "2"}, len(long_doc))
+        is True
+    )

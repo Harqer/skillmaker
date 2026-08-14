@@ -59,6 +59,10 @@ def test_extract_from_raw_json():
     assert _extract_eve_from_raven_output(raw) == VALID_BUNDLE
 
 
+def test_extract_empty_object_is_no_bundle():
+    assert _extract_eve_from_raven_output("{}") == {}
+
+
 def test_extract_from_fenced_json():
     raw = "```json\n" + json.dumps(VALID_BUNDLE) + "\n```\n"
     assert _extract_eve_from_raven_output(raw) == VALID_BUNDLE
@@ -127,6 +131,13 @@ def test_verify_missing_required_files():
 
 
 # ── Fast-fail / bounded retry control flow (fake subprocess boundary) ────────
+# These tests fake subprocess.run and MUST pin the runner discovery to the CLI
+# path (_find_go_runner -> None); otherwise a compiled Go runner in
+# backend/go/bin silently hijacks the fake and the assertions break.
+
+
+def _pin_cli_path(monkeypatch) -> None:
+    monkeypatch.setattr("raven_bridge._find_go_runner", lambda: None)
 
 
 def test_fast_fail_on_structural_output(monkeypatch):
@@ -136,6 +147,7 @@ def test_fast_fail_on_structural_output(monkeypatch):
             returncode=1,
         )
 
+    _pin_cli_path(monkeypatch)
     monkeypatch.setattr("raven_bridge.subprocess.run", fake_run)
     result = generate_skill_with_raven(
         markdown_corpus=PIXABAY_CORPUS,
@@ -152,6 +164,7 @@ def test_retries_on_verifier_rejection(monkeypatch):
     def fake_run(*args, **kwargs):
         return FakeProc(stdout=json.dumps(bundle))
 
+    _pin_cli_path(monkeypatch)
     monkeypatch.setattr("raven_bridge.subprocess.run", fake_run)
     result = generate_skill_with_raven(
         markdown_corpus=PIXABAY_CORPUS,
@@ -165,6 +178,7 @@ def test_success_path(monkeypatch):
     def fake_run(*args, **kwargs):
         return FakeProc(stdout=json.dumps(VALID_BUNDLE))
 
+    _pin_cli_path(monkeypatch)
     monkeypatch.setattr("raven_bridge.subprocess.run", fake_run)
     result = generate_skill_with_raven(
         markdown_corpus=PIXABAY_CORPUS,
@@ -173,6 +187,142 @@ def test_success_path(monkeypatch):
     assert result["success"] is True
     assert result["attempt_count"] == 1
     assert result["issues"] == []
+
+
+# ── Contract 1 dispatch: long/large jobs route through RLM, short jobs don't ─
+
+
+def _rlm_result():
+    return {
+        "success": True,
+        "eve_files": VALID_BUNDLE,
+        "skill_content": json.dumps(VALID_BUNDLE),
+        "attempt_count": 1,
+        "issues": [],
+        "error": None,
+    }
+
+
+def test_long_corpus_routes_through_rlm(monkeypatch):
+    """A document at/above RLM_ROUTE_MIN_CHARS must dispatch through the RLM
+    engine; the direct truncated-brief path must never run."""
+    calls = []
+
+    def fake_rlm(**kwargs):
+        calls.append(kwargs)
+        return _rlm_result()
+
+    monkeypatch.setattr("rlm_bridge.generate_skill_with_rlm", fake_rlm)
+    monkeypatch.setattr(
+        "raven_bridge.subprocess.run",
+        lambda *a, **k: (_ for _ in ()).throw(
+            AssertionError("direct subprocess path must not run on RLM jobs")
+        ),
+    )
+    result = generate_skill_with_raven(
+        markdown_corpus="# docs\n" + "x" * 30_000,
+        target_url="https://example.com/docs",
+    )
+    assert result["success"] is True
+    assert len(calls) == 1
+    assert result["eve_files"] == VALID_BUNDLE
+
+
+def test_many_urls_route_through_rlm(monkeypatch):
+    """Two+ source URLs route through RLM regardless of corpus size."""
+    calls = []
+
+    def fake_rlm(**kwargs):
+        calls.append(kwargs)
+        return _rlm_result()
+
+    monkeypatch.setattr("rlm_bridge.generate_skill_with_rlm", fake_rlm)
+    result = generate_skill_with_raven(
+        markdown_corpus="",
+        target_url="https://example.com/docs",
+        pages={"https://a": "# A", "https://b": "# B"},
+    )
+    assert result["success"] is True
+    assert len(calls) == 1
+    assert set(calls[0]["pages"]) == {"https://a", "https://b"}
+
+
+def test_short_single_input_keeps_direct_path(monkeypatch):
+    """Short single-URL jobs keep the direct path: RLM must not be consulted."""
+    calls = []
+
+    def fake_rlm(**kwargs):
+        calls.append(kwargs)
+        return _rlm_result()
+
+    def fake_run(*args, **kwargs):
+        return FakeProc(stdout=json.dumps(VALID_BUNDLE))
+
+    monkeypatch.setattr("rlm_bridge.generate_skill_with_rlm", fake_rlm)
+    _pin_cli_path(monkeypatch)
+    monkeypatch.setattr("raven_bridge.subprocess.run", fake_run)
+    result = generate_skill_with_raven(
+        markdown_corpus=PIXABAY_CORPUS,
+        target_url="https://pixabay.com/api/docs/",
+        pages={"https://pixabay.com/api/docs/": PIXABAY_CORPUS},
+    )
+    assert result["success"] is True
+    assert calls == []  # RLM never consulted on the direct path
+
+
+# ── Go runner path (compiled deep-research runner, no mocks on dispatch) ─────
+
+
+def test_go_runner_path_success(monkeypatch):
+    """A compiled Go runner emitting its contract JSON is exercised end to end:
+    ``_run_go_runner`` normalizes {success, eve_files} and the verifier passes."""
+    contract = json.dumps(
+        {"success": True, "eve_files": VALID_BUNDLE, "output": "bundle", "error": None}
+    )
+
+    def fake_run(*args, **kwargs):
+        return FakeProc(stdout=contract)
+
+    monkeypatch.setattr("raven_bridge._find_go_runner", lambda: "/fake/go-runner")
+    monkeypatch.setattr("raven_bridge.subprocess.run", fake_run)
+    result = generate_skill_with_raven(
+        markdown_corpus=PIXABAY_CORPUS,
+        target_url="https://pixabay.com/api/docs/",
+    )
+    assert result["success"] is True
+    assert result["attempt_count"] == 1
+    assert result["eve_files"] == VALID_BUNDLE
+    assert result["issues"] == []
+
+
+def test_go_runner_research_failure_not_retried_via_cli(monkeypatch):
+    """A research-level failure from the Go runner (it ran, Raven produced no
+    usable bundle) must NOT fall back to the direct CLI — that would burn a
+    duplicate 120s research run on an unfixable output contract."""
+    calls = []
+
+    def fake_run(*args, **kwargs):
+        calls.append(args[0])
+        return FakeProc(
+            stdout=json.dumps(
+                {
+                    "success": False,
+                    "error": "Raven output contains no JSON object",
+                    "structural": True,
+                }
+            )
+        )
+
+    monkeypatch.setattr("raven_bridge._find_go_runner", lambda: "/fake/go-runner")
+    monkeypatch.setattr("raven_bridge.subprocess.run", fake_run)
+    result = generate_skill_with_raven(
+        markdown_corpus=PIXABAY_CORPUS,
+        target_url="https://pixabay.com/api/docs/",
+    )
+    assert result["success"] is False
+    assert result["attempt_count"] == 1  # fast-fail on structural failure
+    assert len(calls) == 1, "only the Go runner invocation, no CLI fallback"
+    assert calls[0][0] == "/fake/go-runner"
 
 
 # ── Loud failure: orchestrator-compatible wrapper must raise, never degrade ──
@@ -210,11 +360,6 @@ def test_generate_skill_card_raises_when_generation_fails(monkeypatch):
 # ── Integration test: the REAL subprocess/runner boundary (no mocks) ─────────
 
 
-@pytest.mark.skipif(
-    not is_raven_available(),
-    reason="Raven CLI not installed/configured in this environment — real-boundary "
-    "integration test skipped (reported as unverified, not faked)",
-)
 def test_generate_skill_with_raven_real_boundary():
     """Real end-to-end run: brief → Raven deep research → verified EVE bundle.
 
@@ -222,6 +367,11 @@ def test_generate_skill_with_raven_real_boundary():
     (backend/go/bin/deep-research-runner) it is exercised first; otherwise the
     direct vendored CLI is exercised. Verifier must pass on the real output.
     """
+    if not is_raven_available():
+        pytest.skip(
+            "Raven CLI not installed/configured in this environment — real-boundary "
+            "integration test skipped (reported as unverified, not faked)"
+        )
     result = generate_skill_with_raven(
         markdown_corpus=PIXABAY_CORPUS,
         target_url="https://pixabay.com/api/docs/",

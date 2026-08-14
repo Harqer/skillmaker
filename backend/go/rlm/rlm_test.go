@@ -2,6 +2,7 @@ package rlm
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -329,4 +330,82 @@ func TestEngineIntegration(t *testing.T) {
 	if res.Answer == "" {
 		t.Fatal("empty answer")
 	}
+}
+
+// TestEngineIntegrationLargeRealCorpus verifies the engine against a genuinely
+// large corpus built from real repository documentation — not a synthetic
+// fixture — exercising the RLM_ROUTE_MIN_CHARS-sized document path (Contract 1).
+// Skipped when the API key or the in-repo docs are unavailable.
+func TestEngineIntegrationLargeRealCorpus(t *testing.T) {
+	if os.Getenv("GEMINI_API_KEY") == "" && os.Getenv("GOOGLE_API_KEY") == "" {
+		t.Skip("GEMINI_API_KEY not set")
+	}
+	docs, err := loadRealRepoDocs()
+	if err != nil {
+		t.Skipf("real docs unavailable: %v", err)
+	}
+	// Contract 1 routing threshold (RLM_ROUTE_MIN_CHARS = 25_000).
+	const routeMinChars = 25_000
+	if len(docs) < routeMinChars {
+		t.Skipf("real docs too small for large-corpus verification: %d chars", len(docs))
+	}
+	dir := t.TempDir()
+	corpusPath := filepath.Join(dir, "corpus.md")
+	if err := os.WriteFile(corpusPath, []byte(docs), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	engine, err := NewEngine(Config{MaxIterations: 3, Python: "python3"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := engine.Run(
+		context.Background(),
+		corpusPath,
+		"Summarize what the skill-making platform and its loop-engineering docs "+
+			"say about agent skill orchestration, in at most three sentences.",
+	)
+	if !res.Success {
+		t.Fatalf("engine run failed on %d-char real corpus: %+v", len(docs), res)
+	}
+	if res.Answer == "" {
+		t.Fatal("empty answer on large real corpus")
+	}
+}
+
+// loadRealRepoDocs concatenates real in-repo markdown documentation from the
+// repository root. The test runs with cwd = backend/go/rlm, so we walk up to
+// the root (identified by ARCHITECTURE_REFERENCE.md) before reading.
+func loadRealRepoDocs() (string, error) {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "ARCHITECTURE_REFERENCE.md")); err == nil {
+			break
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return "", fmt.Errorf("repo root not found from %s", dir)
+		}
+		dir = parent
+	}
+	var sb strings.Builder
+	for _, rel := range []string{
+		"ARCHITECTURE_REFERENCE.md",
+		"Raven/CONTEXT.md",
+		"loop-engineering/docs/primitives-matrix.md",
+	} {
+		data, err := os.ReadFile(filepath.Join(dir, rel))
+		if err != nil {
+			continue
+		}
+		sb.WriteString("# File: " + rel + "\n\n")
+		sb.Write(data)
+		sb.WriteString("\n\n")
+	}
+	if sb.Len() == 0 {
+		return "", fmt.Errorf("no real docs found under %s", dir)
+	}
+	return sb.String(), nil
 }

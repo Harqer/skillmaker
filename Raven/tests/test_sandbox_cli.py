@@ -9,7 +9,7 @@ from typer.testing import CliRunner
 
 from raven.cli.sandbox_commands import sandbox_app
 
-runner = CliRunner(mix_stderr=False)
+runner = CliRunner()
 
 
 # ---------------------------------------------------------------------------

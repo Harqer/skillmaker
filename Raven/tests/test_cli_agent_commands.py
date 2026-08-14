@@ -57,6 +57,22 @@ def test_json_renderer_emits_raw_output_no_banner(capsys) -> None:
     assert callable(plain)
 
 
+def test_agent_json_mode_stdout_exclusive(
+    tmp_config: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``agent --json --message`` keeps stdout exclusive to the final payload:
+    no startup banner, no thinking spinner, no notices — so a machine consumer
+    can ``json.loads`` the entire stream."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+
+    r, _ = _invoke_agent_capturing_session(monkeypatch, ws, ["--json"])
+    assert r.exit_code == 0, r.output
+    assert r.stdout == "stub-response\n", f"stdout not exclusive: {r.stdout!r}"
+    assert "Raven" not in r.stdout
+    assert "\x1b[" not in r.stdout
+
+
 def test_agent_without_api_key_exits_cleanly(tmp_config: Path) -> None:
     """With no provider configured, the command must exit non-zero — and
     crucially must not raise a *crash* exception (NameError / AttributeError /
@@ -278,8 +294,8 @@ def test_agent_unknown_bare_session_falls_back_to_cli(
 def test_agent_session_binding_flags_mutually_exclusive(tmp_config: Path, args: list[str]) -> None:
     """More than one of --session/--continue/--resume exits with usage error."""
     r = runner.invoke(app, ["agent", "-m", "hi", *args])
-    assert r.exit_code == 2, f"expected usage error, got {r.exit_code}: {r.stdout}"
-    assert "mutually exclusive" in r.stdout
+    assert r.exit_code == 2, f"expected usage error, got {r.exit_code}: {r.output}"
+    assert "mutually exclusive" in r.output
 
 
 def test_agent_continue_without_prior_session_starts_fresh(
