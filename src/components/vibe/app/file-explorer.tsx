@@ -8,12 +8,12 @@ interface Props {
 }
 
 export function FileExplorer({ className }: Props) {
-	const { sandboxId, status, paths, generatedFiles } = useSandboxStore();
+	const { sandboxId, status, paths, generationCount } = useSandboxStore();
 	return (
 		<FileExplorerComponent
 			className={className}
 			disabled={status === "stopped"}
-			generationKey={generatedFiles.size}
+			generationKey={generationCount}
 			sandboxId={sandboxId}
 			paths={paths}
 		/>

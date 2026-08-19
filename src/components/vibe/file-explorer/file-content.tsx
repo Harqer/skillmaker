@@ -18,17 +18,29 @@ export const FileContent = memo(function FileContent({
 	generationKey,
 }: Props) {
 	const searchParams = new URLSearchParams({ path });
+	const url = `/api/vibe/sandboxes/${sandboxId}/files?${searchParams.toString()}`;
 	const content = useSWR(
-		`/api/vibe/sandboxes/${sandboxId}/files?${searchParams.toString()}:${generationKey ?? 0}`,
-		async (pathname: string, init: RequestInit) => {
-			const response = await fetch(pathname, init);
+		[url, generationKey ?? 0] as const,
+		async ([pathname]: readonly [string, number]) => {
+			const response = await fetch(pathname);
 			const text = await response.text();
+			if (!response.ok) {
+				throw new Error(text || `Request failed with status ${response.status}`);
+			}
 			return text;
 		},
 		{ revalidateOnFocus: false },
 	);
 
-	if (content.isLoading || !content.data) {
+	if (content.error) {
+		return (
+			<div className="p-4 font-mono text-sm text-red-600">
+				Unable to load {path}
+			</div>
+		);
+	}
+
+	if (content.isLoading || content.data === undefined) {
 		return (
 			<div className="absolute w-full h-full flex items-center text-center">
 				<div className="flex-1">

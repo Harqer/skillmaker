@@ -6,7 +6,7 @@ import {
 	FileIcon,
 	FolderIcon,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useState } from "react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Panel, PanelHeader } from "@/components/vibe/panels/panels";
 import { cn } from "@/lib/utils";
@@ -28,37 +28,11 @@ export const FileExplorer = memo(function FileExplorer({
 	paths,
 	sandboxId,
 }: Props) {
-	const prevPathsRef = useRef<string[]>([]);
-	const prevTreeRef = useRef<FileNode[]>([]);
 	const [fs, setFs] = useState<FileNode[]>([]);
 	const [selected, setSelected] = useState<FileNode | null>(null);
 
 	useEffect(() => {
-		const { tree, newFolders } = buildFileTree(paths, prevTreeRef.current);
-		prevPathsRef.current = paths;
-		prevTreeRef.current = tree;
-
-		if (newFolders.length > 0) {
-			setFs((prev) => {
-				let changed = false;
-				const expandNew = (nodes: FileNode[]): FileNode[] =>
-					nodes.map((node) => {
-						if (node.type === "folder" && newFolders.includes(node.path)) {
-							changed = true;
-							return { ...node, expanded: true };
-						} else if (node.children) {
-							const updated = expandNew(node.children);
-							return updated !== node.children
-								? { ...node, children: updated }
-								: node;
-						}
-						return node;
-					});
-				return changed ? expandNew(prev) : tree;
-			});
-		} else {
-			setFs(tree);
-		}
+		setFs((prev) => buildFileTree(paths, prev).tree);
 	}, [paths]);
 
 	const toggleFolder = useCallback((path: string) => {

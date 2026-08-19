@@ -14,6 +14,7 @@ interface SandboxStore {
 	clearGeneratedFiles: () => void;
 	commands: Command[];
 	generatedFiles: Set<string>;
+	generationCount: number;
 	paths: string[];
 	sandboxId?: string;
 	setChatStatus: (status: ChatStatus) => void;
@@ -48,6 +49,7 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
 	addGeneratedFiles: (files) =>
 		set((state) => ({
 			generatedFiles: new Set([...state.generatedFiles, ...files]),
+			generationCount: state.generationCount + 1,
 		})),
 	addLog: (data) => {
 		set((state) => {
@@ -70,6 +72,7 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
 	clearGeneratedFiles: () => set(() => ({ generatedFiles: new Set<string>() })),
 	commands: [],
 	generatedFiles: new Set<string>(),
+	generationCount: 0,
 	paths: [],
 	setChatStatus: (status) =>
 		set((state) =>
