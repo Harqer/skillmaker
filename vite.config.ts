@@ -26,7 +26,6 @@ const config = defineConfig({
 	},
 	resolve: {
 		alias: {
-			"#": "/src",
 			"@": "/src",
 		},
 		tsconfigPaths: true,
