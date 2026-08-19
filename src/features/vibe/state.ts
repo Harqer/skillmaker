@@ -7,14 +7,12 @@ import { useMonitorState } from "@/components/vibe/error-monitor/state";
 import type { ChatStatus, DataUIPart } from "ai";
 
 interface SandboxStore {
-	addGeneratedFiles: (files: string[]) => void;
 	addLog: (data: { sandboxId: string; cmdId: string; log: CommandLog }) => void;
 	addPaths: (paths: string[]) => void;
 	chatStatus: ChatStatus;
-	clearGeneratedFiles: () => void;
 	commands: Command[];
-	generatedFiles: Set<string>;
 	generationCount: number;
+	markFilesGenerated: () => void;
 	paths: string[];
 	sandboxId?: string;
 	setChatStatus: (status: ChatStatus) => void;
@@ -46,11 +44,6 @@ export function useCommandErrorsLogs() {
 }
 
 export const useSandboxStore = create<SandboxStore>()((set) => ({
-	addGeneratedFiles: (files) =>
-		set((state) => ({
-			generatedFiles: new Set([...state.generatedFiles, ...files]),
-			generationCount: state.generationCount + 1,
-		})),
 	addLog: (data) => {
 		set((state) => {
 			const idx = state.commands.findIndex((c) => c.cmdId === data.cmdId);
@@ -69,10 +62,10 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
 	addPaths: (paths) =>
 		set((state) => ({ paths: [...new Set([...state.paths, ...paths])] })),
 	chatStatus: "ready",
-	clearGeneratedFiles: () => set(() => ({ generatedFiles: new Set<string>() })),
 	commands: [],
-	generatedFiles: new Set<string>(),
 	generationCount: 0,
+	markFilesGenerated: () =>
+		set((state) => ({ generationCount: state.generationCount + 1 })),
 	paths: [],
 	setChatStatus: (status) =>
 		set((state) =>
@@ -85,7 +78,6 @@ export const useSandboxStore = create<SandboxStore>()((set) => ({
 			commands: [],
 			paths: [],
 			url: undefined,
-			generatedFiles: new Set<string>(),
 		})),
 	setStatus: (status) => set(() => ({ status })),
 	setUrl: (url, urlUUID) => set(() => ({ url, urlUUID })),
@@ -119,7 +111,7 @@ export const useFileExplorerStore = create<FileExplorerStore>()((set) => ({
 }));
 
 export function useDataStateMapper() {
-	const { addPaths, setSandboxId, setUrl, upsertCommand, addGeneratedFiles } =
+	const { addPaths, setSandboxId, setUrl, upsertCommand, markFilesGenerated } =
 		useSandboxStore();
 	const { errors } = useCommandErrorsLogs();
 	const { setCursor } = useMonitorState();
@@ -135,7 +127,7 @@ export function useDataStateMapper() {
 				if (data.data.status === "uploaded") {
 					setCursor(errors.length);
 					addPaths(data.data.paths);
-					addGeneratedFiles(data.data.paths);
+					markFilesGenerated();
 				}
 				break;
 			case "data-run-command":

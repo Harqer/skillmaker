@@ -34,13 +34,12 @@ function collectExpansionState(nodes: FileNode[]): Map<string, boolean> {
 export function buildFileTree(
 	paths: string[],
 	previousTree?: FileNode[],
-): { tree: FileNode[]; newFolders: string[] } {
-	if (paths.length === 0) return { tree: [], newFolders: [] };
+): FileNode[] {
+	if (paths.length === 0) return [];
 
 	const expansionState = previousTree
 		? collectExpansionState(previousTree)
 		: new Map<string, boolean>();
-	const newFolders: string[] = [];
 	const root: { [key: string]: FileNodeBuilder } = {};
 
 	for (const path of paths) {
@@ -65,9 +64,6 @@ export function buildFileTree(
 					children: isFile ? undefined : {},
 					expanded: existed ? expansionState.get(currentPath) : !isFile,
 				};
-				if (!isFile && !existed) {
-					newFolders.push(currentPath);
-				}
 			}
 
 			if (!isFile) {
@@ -97,5 +93,5 @@ export function buildFileTree(
 			});
 	};
 
-	return { tree: convertToArray(root), newFolders };
+	return convertToArray(root);
 }

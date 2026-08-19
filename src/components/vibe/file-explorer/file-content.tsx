@@ -22,14 +22,16 @@ export const FileContent = memo(function FileContent({
 	const content = useSWR(
 		[url, generationKey ?? 0] as const,
 		async ([pathname]: readonly [string, number]) => {
-			const response = await fetch(pathname);
+			const response = await fetch(pathname, { cache: "no-store" });
 			const text = await response.text();
 			if (!response.ok) {
-				throw new Error(text || `Request failed with status ${response.status}`);
+				throw new Error(
+					text || `Request failed with status ${response.status}`,
+				);
 			}
 			return text;
 		},
-		{ revalidateOnFocus: false },
+		{ keepPreviousData: true, revalidateOnFocus: false },
 	);
 
 	if (content.error) {

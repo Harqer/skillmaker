@@ -32,7 +32,7 @@ export const FileExplorer = memo(function FileExplorer({
 	const [selected, setSelected] = useState<FileNode | null>(null);
 
 	useEffect(() => {
-		setFs((prev) => buildFileTree(paths, prev).tree);
+		setFs((prev) => buildFileTree(paths, prev));
 	}, [paths]);
 
 	const toggleFolder = useCallback((path: string) => {
