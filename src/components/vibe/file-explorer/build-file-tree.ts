@@ -1,6 +1,5 @@
 export interface FileNode {
 	children?: FileNode[];
-	content?: string;
 	expanded?: boolean;
 	name: string;
 	path: string;
@@ -9,7 +8,6 @@ export interface FileNode {
 
 interface FileNodeBuilder {
 	children?: { [key: string]: FileNodeBuilder };
-	content?: string;
 	expanded?: boolean;
 	name: string;
 	path: string;
@@ -53,16 +51,12 @@ export function buildFileTree(
 			const isFile = index === parts.length - 1;
 
 			if (!current[part]) {
-				const existed = expansionState.has(currentPath);
 				current[part] = {
 					name: part,
 					type: isFile ? "file" : "folder",
 					path: currentPath,
-					content: isFile
-						? `// Content for ${currentPath}\n// This will be loaded when the file is selected`
-						: undefined,
 					children: isFile ? undefined : {},
-					expanded: existed ? expansionState.get(currentPath) : !isFile,
+					expanded: expansionState.get(currentPath) ?? !isFile,
 				};
 			}
 
