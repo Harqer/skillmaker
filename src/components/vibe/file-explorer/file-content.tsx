@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useEffect, useRef } from "react";
 import * as Spinners from "react-spinners";
 import useSWR from "swr";
 
@@ -20,8 +20,8 @@ export const FileContent = memo(function FileContent({
 	const searchParams = new URLSearchParams({ path });
 	const url = `/api/vibe/sandboxes/${sandboxId}/files?${searchParams.toString()}`;
 	const content = useSWR(
-		[url, generationKey ?? 0] as const,
-		async ([pathname]: readonly [string, number]) => {
+		url,
+		async (pathname: string) => {
 			const response = await fetch(pathname, { cache: "no-store" });
 			const text = await response.text();
 			if (!response.ok) {
@@ -31,8 +31,17 @@ export const FileContent = memo(function FileContent({
 			}
 			return text;
 		},
-		{ keepPreviousData: true, revalidateOnFocus: false },
+		{ revalidateOnFocus: false },
 	);
+
+	const { mutate } = content;
+	const revalidatedForRef = useRef(generationKey);
+
+	useEffect(() => {
+		if (revalidatedForRef.current === generationKey) return;
+		revalidatedForRef.current = generationKey;
+		mutate();
+	}, [generationKey, mutate]);
 
 	if (content.error) {
 		return (
