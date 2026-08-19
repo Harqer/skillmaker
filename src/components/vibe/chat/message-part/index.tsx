@@ -1,11 +1,10 @@
-import { memo } from "react";
 import type { UIMessage } from "ai";
+import { memo } from "react";
 
 import type { DataPart } from "@/features/vibe/data-parts";
 import type { Metadata } from "@/features/vibe/metadata";
 import type { ToolSet } from "@/server/vibe/tools";
 import { CreateSandbox } from "./create-sandbox";
-import { GenerateFiles } from "./generate-files";
 import { GetSandboxURL } from "./get-sandbox-url";
 import { Reasoning } from "./reasoning";
 import { ReportErrors } from "./report-errors";
@@ -21,9 +20,7 @@ export const MessagePart = memo(function MessagePart({
 	part,
 	partIndex,
 }: Props) {
-	if (part.type === "data-generating-files") {
-		return <GenerateFiles message={part.data} />;
-	} else if (part.type === "data-create-sandbox") {
+	if (part.type === "data-create-sandbox") {
 		return <CreateSandbox message={part.data} />;
 	} else if (part.type === "data-get-sandbox-url") {
 		return <GetSandboxURL message={part.data} />;

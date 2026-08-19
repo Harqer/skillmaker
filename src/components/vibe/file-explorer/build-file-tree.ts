@@ -16,8 +16,31 @@ interface FileNodeBuilder {
 	type: "file" | "folder";
 }
 
-export function buildFileTree(paths: string[]): FileNode[] {
-	if (paths.length === 0) return [];
+function collectExpansionState(nodes: FileNode[]): Map<string, boolean> {
+	const map = new Map<string, boolean>();
+	for (const node of nodes) {
+		if (node.type === "folder") {
+			map.set(node.path, !!node.expanded);
+			if (node.children) {
+				for (const [k, v] of collectExpansionState(node.children)) {
+					map.set(k, v);
+				}
+			}
+		}
+	}
+	return map;
+}
+
+export function buildFileTree(
+	paths: string[],
+	previousTree?: FileNode[],
+): { tree: FileNode[]; newFolders: string[] } {
+	if (paths.length === 0) return { tree: [], newFolders: [] };
+
+	const expansionState = previousTree
+		? collectExpansionState(previousTree)
+		: new Map<string, boolean>();
+	const newFolders: string[] = [];
 	const root: { [key: string]: FileNodeBuilder } = {};
 
 	for (const path of paths) {
@@ -27,10 +50,11 @@ export function buildFileTree(paths: string[]): FileNode[] {
 
 		for (let index = 0; index < parts.length; index++) {
 			const part = parts[index];
-			currentPath += "/" + part;
+			currentPath += `/${part}`;
 			const isFile = index === parts.length - 1;
 
 			if (!current[part]) {
+				const existed = expansionState.has(currentPath);
 				current[part] = {
 					name: part,
 					type: isFile ? "file" : "folder",
@@ -39,12 +63,18 @@ export function buildFileTree(paths: string[]): FileNode[] {
 						? `// Content for ${currentPath}\n// This will be loaded when the file is selected`
 						: undefined,
 					children: isFile ? undefined : {},
-					expanded: false,
+					expanded: existed ? expansionState.get(currentPath) : !isFile,
 				};
+				if (!isFile && !existed) {
+					newFolders.push(currentPath);
+				}
 			}
 
 			if (!isFile) {
-				current = current[part].children!;
+				const child = current[part];
+				if (child?.children) {
+					current = child.children;
+				}
 			}
 		}
 	}
@@ -56,9 +86,7 @@ export function buildFileTree(paths: string[]): FileNode[] {
 			.map(
 				(node): FileNode => ({
 					...node,
-					children: node.children
-						? convertToArray(node.children)
-						: undefined,
+					children: node.children ? convertToArray(node.children) : undefined,
 				}),
 			)
 			.sort((a, b) => {
@@ -69,5 +97,5 @@ export function buildFileTree(paths: string[]): FileNode[] {
 			});
 	};
 
-	return convertToArray(root);
+	return { tree: convertToArray(root), newFolders };
 }

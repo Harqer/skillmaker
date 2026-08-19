@@ -9,21 +9,23 @@ const { PulseLoader } = Spinners;
 interface Props {
 	sandboxId: string;
 	path: string;
+	generationKey?: number;
 }
 
 export const FileContent = memo(function FileContent({
 	sandboxId,
 	path,
+	generationKey,
 }: Props) {
 	const searchParams = new URLSearchParams({ path });
 	const content = useSWR(
-		`/api/vibe/sandboxes/${sandboxId}/files?${searchParams.toString()}`,
+		`/api/vibe/sandboxes/${sandboxId}/files?${searchParams.toString()}:${generationKey ?? 0}`,
 		async (pathname: string, init: RequestInit) => {
 			const response = await fetch(pathname, init);
 			const text = await response.text();
 			return text;
 		},
-		{ refreshInterval: 1000 },
+		{ revalidateOnFocus: false },
 	);
 
 	if (content.isLoading || !content.data) {

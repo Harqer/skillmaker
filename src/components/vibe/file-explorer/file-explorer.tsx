@@ -6,17 +6,17 @@ import {
 	FileIcon,
 	FolderIcon,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-
-import { FileContent } from "./file-content";
-import { buildFileTree, type FileNode } from "./build-file-tree";
-import { Panel, PanelHeader } from "@/components/vibe/panels/panels";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Panel, PanelHeader } from "@/components/vibe/panels/panels";
 import { cn } from "@/lib/utils";
+import { buildFileTree, type FileNode } from "./build-file-tree";
+import { FileContent } from "./file-content";
 
 interface Props {
 	className: string;
 	disabled?: boolean;
+	generationKey?: number;
 	paths: string[];
 	sandboxId?: string;
 }
@@ -24,16 +24,42 @@ interface Props {
 export const FileExplorer = memo(function FileExplorer({
 	className,
 	disabled,
+	generationKey,
 	paths,
 	sandboxId,
 }: Props) {
-	const fileTree = useMemo(() => buildFileTree(paths), [paths]);
+	const prevPathsRef = useRef<string[]>([]);
+	const prevTreeRef = useRef<FileNode[]>([]);
+	const [fs, setFs] = useState<FileNode[]>([]);
 	const [selected, setSelected] = useState<FileNode | null>(null);
-	const [fs, setFs] = useState<FileNode[]>(fileTree);
 
 	useEffect(() => {
-		setFs(fileTree);
-	}, [fileTree]);
+		const { tree, newFolders } = buildFileTree(paths, prevTreeRef.current);
+		prevPathsRef.current = paths;
+		prevTreeRef.current = tree;
+
+		if (newFolders.length > 0) {
+			setFs((prev) => {
+				let changed = false;
+				const expandNew = (nodes: FileNode[]): FileNode[] =>
+					nodes.map((node) => {
+						if (node.type === "folder" && newFolders.includes(node.path)) {
+							changed = true;
+							return { ...node, expanded: true };
+						} else if (node.children) {
+							const updated = expandNew(node.children);
+							return updated !== node.children
+								? { ...node, children: updated }
+								: node;
+						}
+						return node;
+					});
+				return changed ? expandNew(prev) : tree;
+			});
+		} else {
+			setFs(tree);
+		}
+	}, [paths]);
 
 	const toggleFolder = useCallback((path: string) => {
 		setFs((prev) => {
@@ -95,6 +121,7 @@ export const FileExplorer = memo(function FileExplorer({
 						<FileContent
 							sandboxId={sandboxId}
 							path={selected.path.substring(1)}
+							generationKey={generationKey}
 						/>
 						<ScrollBar orientation="horizontal" />
 					</ScrollArea>
@@ -127,6 +154,16 @@ const FileTreeNode = memo(function FileTreeNode({
 		}
 	}, [node, onToggleFolder, onSelectFile]);
 
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent) => {
+			if (e.key === "Enter" || e.key === " ") {
+				e.preventDefault();
+				handleClick();
+			}
+		},
+		[handleClick],
+	);
+
 	return (
 		<div>
 			<div
@@ -135,7 +172,10 @@ const FileTreeNode = memo(function FileTreeNode({
 					{ "bg-gray-200/80": selected?.path === node.path },
 				)}
 				style={{ paddingLeft: `${depth * 16 + 8}px` }}
+				role="button"
+				tabIndex={0}
 				onClick={handleClick}
+				onKeyDown={handleKeyDown}
 			>
 				{node.type === "folder" ? (
 					<>

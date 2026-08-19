@@ -1,18 +1,19 @@
 "use client";
 
-import { useSandboxStore } from "@/features/vibe/state";
 import { FileExplorer as FileExplorerComponent } from "@/components/vibe/file-explorer/file-explorer";
+import { useSandboxStore } from "@/features/vibe/state";
 
 interface Props {
 	className: string;
 }
 
 export function FileExplorer({ className }: Props) {
-	const { sandboxId, status, paths } = useSandboxStore();
+	const { sandboxId, status, paths, generatedFiles } = useSandboxStore();
 	return (
 		<FileExplorerComponent
 			className={className}
 			disabled={status === "stopped"}
+			generationKey={generatedFiles.size}
 			sandboxId={sandboxId}
 			paths={paths}
 		/>
