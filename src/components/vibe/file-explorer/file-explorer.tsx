@@ -6,17 +6,17 @@ import {
 	FileIcon,
 	FolderIcon,
 } from "lucide-react";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-
-import { FileContent } from "./file-content";
-import { buildFileTree, type FileNode } from "./build-file-tree";
-import { Panel, PanelHeader } from "@/components/vibe/panels/panels";
+import { memo, useCallback, useEffect, useState } from "react";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
+import { Panel, PanelHeader } from "@/components/vibe/panels/panels";
 import { cn } from "@/lib/utils";
+import { buildFileTree, type FileNode } from "./build-file-tree";
+import { FileContent } from "./file-content";
 
 interface Props {
 	className: string;
 	disabled?: boolean;
+	generationKey?: number;
 	paths: string[];
 	sandboxId?: string;
 }
@@ -24,16 +24,16 @@ interface Props {
 export const FileExplorer = memo(function FileExplorer({
 	className,
 	disabled,
+	generationKey,
 	paths,
 	sandboxId,
 }: Props) {
-	const fileTree = useMemo(() => buildFileTree(paths), [paths]);
+	const [fs, setFs] = useState<FileNode[]>([]);
 	const [selected, setSelected] = useState<FileNode | null>(null);
-	const [fs, setFs] = useState<FileNode[]>(fileTree);
 
 	useEffect(() => {
-		setFs(fileTree);
-	}, [fileTree]);
+		setFs((prev) => buildFileTree(paths, prev));
+	}, [paths]);
 
 	const toggleFolder = useCallback((path: string) => {
 		setFs((prev) => {
@@ -95,6 +95,7 @@ export const FileExplorer = memo(function FileExplorer({
 						<FileContent
 							sandboxId={sandboxId}
 							path={selected.path.substring(1)}
+							generationKey={generationKey}
 						/>
 						<ScrollBar orientation="horizontal" />
 					</ScrollArea>
@@ -127,6 +128,16 @@ const FileTreeNode = memo(function FileTreeNode({
 		}
 	}, [node, onToggleFolder, onSelectFile]);
 
+	const handleKeyDown = useCallback(
+		(e: React.KeyboardEvent) => {
+			if (e.key === "Enter" || e.key === " ") {
+				e.preventDefault();
+				handleClick();
+			}
+		},
+		[handleClick],
+	);
+
 	return (
 		<div>
 			<div
@@ -135,7 +146,10 @@ const FileTreeNode = memo(function FileTreeNode({
 					{ "bg-gray-200/80": selected?.path === node.path },
 				)}
 				style={{ paddingLeft: `${depth * 16 + 8}px` }}
+				role="button"
+				tabIndex={0}
 				onClick={handleClick}
+				onKeyDown={handleKeyDown}
 			>
 				{node.type === "folder" ? (
 					<>

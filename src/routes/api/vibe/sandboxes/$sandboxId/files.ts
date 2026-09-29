@@ -52,6 +52,7 @@ export const Route = createFileRoute("/api/vibe/sandboxes/$sandboxId/files")({
 							controller.close();
 						},
 					}),
+					{ headers: { "Cache-Control": "no-store" } },
 				);
 			},
 		},

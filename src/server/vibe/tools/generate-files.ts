@@ -2,9 +2,9 @@ import { tool, type UIMessageStreamWriter } from "ai";
 import z from "zod/v3";
 
 import type { ChatUIMessage } from "@/features/vibe/types";
-import { Sandbox } from "../local-sandbox";
+import { type LocalSandbox, Sandbox } from "../local-sandbox";
 import { GENERATE_FILES_DESCRIPTION } from "./descriptions";
-import { getContents, type File } from "./generate-files/get-contents";
+import { type File, getContents } from "./generate-files/get-contents";
 import { getWriteFiles } from "./generate-files/get-write-files";
 import { getRichError } from "./get-rich-error";
 
@@ -27,7 +27,7 @@ export const generateFiles = ({ writer, modelId }: Params) =>
 				data: { paths: [], status: "generating" },
 			});
 
-			let sandbox;
+			let sandbox: LocalSandbox | undefined;
 
 			try {
 				sandbox = Sandbox.get({ sandboxId });
@@ -97,9 +97,6 @@ export const generateFiles = ({ writer, modelId }: Params) =>
 				data: { paths: uploaded.map((file) => file.path), status: "done" },
 			});
 
-			return `Successfully generated and uploaded ${
-				uploaded.length
-			} files. Their paths and contents are as follows:
-				${uploaded.map((file) => `Path: ${file.path}\nContent: ${file.content}\n`).join("\n")}`;
+			return `Successfully generated ${uploaded.length} files.`;
 		},
 	});
